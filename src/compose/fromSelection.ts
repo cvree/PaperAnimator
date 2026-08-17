@@ -18,6 +18,14 @@ import type {
  */
 
 const M = 0.088;
+
+/**
+ * A kicker, a figure number, a section name. These are the presentation's own
+ * furniture: they assert nothing about the paper, and calling them "yours"
+ * would both be untrue and drag the integrity score down for wording nobody
+ * wrote and nobody needs to check.
+ */
+const LABEL: Provenance = { kind: 'connective' };
 const WORDS_PER_SECOND = 2.65;
 
 export function makeSceneFromSentence(
@@ -59,7 +67,7 @@ export function makeSceneFromSentence(
     layers.push(
       textLayer(
         'FROM THE PAPER',
-        { kind: 'authored' },
+        LABEL,
         'label',
         { x: M, y: 0.18, w: 0.5, h: 0.05 },
         0,

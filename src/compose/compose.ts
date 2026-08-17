@@ -157,6 +157,14 @@ function renumber(scenes: Scene[]): Scene[] {
 
 const M = 0.088; // page margin, normalized
 
+/**
+ * A kicker, a figure number, a section name. These are the presentation's own
+ * furniture: they assert nothing about the paper, and calling them "yours"
+ * would both be untrue and drag the integrity score down for wording nobody
+ * wrote and nobody needs to check.
+ */
+const LABEL: Provenance = { kind: 'connective' };
+
 function titleScene(paper: Paper, settings: ProjectSettings): Scene {
   const title = paper.meta.title ?? 'Untitled paper';
   const titleRef: SourceRef = {
@@ -241,7 +249,7 @@ function statementScene(
   const body = grounded.value;
   const layers: Layer[] = [
     text({
-      atoms: [atom(title.toUpperCase(), { kind: 'authored' })],
+      atoms: [atom(title.toUpperCase(), LABEL)],
       role: 'label',
       frame: { x: M, y: 0.18, w: 0.5, h: 0.05 },
       enter: motion('rise', 0, 420),
@@ -341,7 +349,7 @@ function figureScene(fig: Figure, paper: Paper, settings: ProjectSettings): Scen
       decorative: false,
     },
     text({
-      atoms: [atom(fig.label.toUpperCase(), { kind: 'authored' })],
+      atoms: [atom(fig.label.toUpperCase(), LABEL)],
       role: 'label',
       frame: { x: M, y: 0.755, w: 0.3, h: 0.04 },
       enter: motion('rise', 520, 380),
@@ -397,7 +405,7 @@ function tableScene(tab: PaperTable, settings: ProjectSettings): Scene {
       decorative: false,
     },
     text({
-      atoms: [atom(tab.label.toUpperCase(), { kind: 'authored' })],
+      atoms: [atom(tab.label.toUpperCase(), LABEL)],
       role: 'label',
       frame: { x: M, y: 0.78, w: 0.3, h: 0.04 },
       enter: motion('rise', 480, 380),
@@ -431,7 +439,7 @@ function citationsScene(paper: Paper, settings: ProjectSettings): Scene {
   const lines = cited.map((r) => shorten(r.raw, 110));
   const layers: Layer[] = [
     text({
-      atoms: [atom('SOURCES', { kind: 'authored' })],
+      atoms: [atom('SOURCES', LABEL)],
       role: 'label',
       frame: { x: M, y: 0.16, w: 0.4, h: 0.05 },
       enter: motion('rise', 0, 400),

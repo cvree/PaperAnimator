@@ -149,12 +149,21 @@ export function IntegrityView({ embedded = false }: { embedded?: boolean }) {
 
       {issues.length === 0 ? (
         <div className="rounded-[var(--radius-md)] border border-[var(--rule-hairline)] bg-[var(--surface-raised)] p-8 text-center">
+          {/* Read off the report rather than asserted. Claiming that everything
+              traces back while the counts above say 28 of 37 is exactly the
+              kind of contradiction that costs an accuracy feature its credit. */}
           <p className="text-base text-[var(--ink-primary)]">
-            Every claim in this presentation traces back to your paper.
+            {integrity.groundedAtoms === integrity.factualAtoms
+              ? 'Every claim in this presentation traces back to your paper.'
+              : `${integrity.groundedAtoms} of ${integrity.factualAtoms} claims trace back to your paper. Nothing is flagged.`}
           </p>
-          <p className="mx-auto mt-2 max-w-[44ch] text-xs leading-[1.55] text-[var(--ink-tertiary)]">
-            That is the default here: the composer selects sentences rather than writing them, so
-            there is nothing to fact-check that the paper does not already say.
+          <p className="mx-auto mt-2 max-w-[46ch] text-xs leading-[1.55] text-[var(--ink-tertiary)]">
+            The composer selects sentences rather than writing them, so there is nothing to
+            fact-check that the paper does not already say.
+            {integrity.counts.connective > 0 &&
+              ` The other ${integrity.counts.connective} line${
+                integrity.counts.connective === 1 ? '' : 's'
+              } are labels and transitions, which carry no claim.`}
           </p>
         </div>
       ) : (
