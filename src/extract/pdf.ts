@@ -1,5 +1,12 @@
 import * as pdfjs from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// Inlined as source rather than imported as a separate ?url chunk: a worker
+// fetched over the network is a single extra request that an ad blocker,
+// corporate filter, or flaky connection can drop — and when it does, pdf.js's
+// own fallback tries to fetch that exact same URL and fails the same way,
+// which used to surface to users as "this PDF is damaged" for every PDF,
+// including the sample. Building the worker from a Blob already present in
+// the bundle removes that request as a failure point entirely.
+import workerSource from 'pdfjs-dist/build/pdf.worker.min.mjs?raw';
 import type {
   Author,
   Degradation,
@@ -23,7 +30,9 @@ import { extractStatistics } from './stats';
 import { comprehend } from './comprehend';
 import { extractReferences } from './refs';
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+  new Blob([workerSource], { type: 'text/javascript' }),
+);
 
 export const LIMITS = {
   maxBytes: 100 * 1024 * 1024,
@@ -159,12 +168,24 @@ export async function extractPaper(
   try {
     doc = await loadingTask.promise;
   } catch (err) {
+    console.error('PDF intake failed', err);
     const msg = String((err as Error)?.message ?? err);
     if (/password/i.test(msg)) {
       throw new PdfIntakeError(
         'This PDF is password-protected',
         'We need the password to read it. It is used once and never stored.',
         'Remove the password, or open it in a reader and re-export.',
+      );
+    }
+    // Anything mentioning the worker is not about this file's bytes at all —
+    // a background script this page needs failed to start, most often because
+    // something in the browser or network blocked it. Telling the user their
+    // PDF is damaged here would be both wrong and unfixable by them.
+    if (/worker/i.test(msg)) {
+      throw new PdfIntakeError(
+        "Paper Animator couldn't start its PDF reader",
+        "A background script this page needs failed to load. This isn't a problem with your file — the same thing would happen with any PDF right now.",
+        'Try disabling ad blockers or privacy extensions for this site, switch off a VPN, or try a different network, then reload the page.',
       );
     }
     throw new PdfIntakeError(
