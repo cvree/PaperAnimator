@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+# Builds the static Vite app and publishes it to GitHub Pages.
+#
+# This is a client-only app — no server, no API key — so Pages is a complete
+# host for it. The one thing this workflow cannot do itself is turn Pages on:
+# a repo's first deploy needs Settings → Pages → Source set to "GitHub
+# Actions" once, by someone with admin rights on the repo.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/paper-animator-web-app-d3huzk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx vite build --base=/${{ github.event.repository.name }}/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
