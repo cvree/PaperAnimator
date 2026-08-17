@@ -1,0 +1,436 @@
+import type { Layer, NarrationCue, Project, Scene, SceneId, LayerId } from '@/core/types';
+
+/**
+ * resolveFrame is the contract that makes preview equal export.
+ *
+ * It is pure: no DOM, no clock, no randomness, no I/O. The editor calls it on
+ * every animation frame with the wall clock; the exporter calls it in a loop at
+ * a fixed step. Same function, same input, same pixels.
+ *
+ * Nothing inside the scene canvas may animate via CSS transitions or a motion
+ * library — every animated value on screen comes from here.
+ */
+
+export interface ResolveOptions {
+  reducedMotion: boolean;
+}
+
+export interface ResolvedHighlight {
+  id: string;
+  treatment: 'sweep' | 'underline' | 'box' | 'spotlight' | 'strike';
+  /** Word indices covered so far. Fractional, so the marker moves at reading speed. */
+  from: number;
+  to: number;
+  colorToken: string;
+}
+
+export interface ResolvedLayer {
+  id: LayerId;
+  layer: Layer;
+  /** Eased 0–1 progress of the entrance, exposed for content that counts up. */
+  progress: number;
+  opacity: number;
+  /** Translation as a fraction of canvas height — resolution independent. */
+  tx: number;
+  ty: number;
+  scale: number;
+  /** Reveal clip as fractions of the layer's own box. */
+  clip: { top: number; right: number; bottom: number; left: number } | null;
+  blur: number;
+  highlights: ResolvedHighlight[];
+  needsReview: boolean;
+}
+
+export interface ResolvedCaption {
+  text: string;
+  words: { text: string; spoken: boolean; active: boolean }[];
+}
+
+export interface FrameState {
+  tMs: number;
+  sceneIndex: number;
+  sceneId: SceneId | null;
+  sceneTMs: number;
+  sceneDurationMs: number;
+  layers: ResolvedLayer[];
+  /** Outgoing scene during a transition, plus 0–1 progress. */
+  transition: { fromSceneId: SceneId; progress: number; kind: Scene['transitionIn'] } | null;
+  caption: ResolvedCaption | null;
+  activeCueId: string | null;
+  totalMs: number;
+}
+
+const TRANSITION_MS = 420;
+
+/* ============================================================================
+   Timeline
+   ========================================================================== */
+
+export interface SceneWindow {
+  scene: Scene;
+  startMs: number;
+  endMs: number;
+  index: number;
+}
+
+export function sceneWindows(project: Project): SceneWindow[] {
+  const out: SceneWindow[] = [];
+  let t = 0;
+  let index = 0;
+  for (const scene of project.scenes) {
+    if (scene.hidden) continue;
+    out.push({ scene, startMs: t, endMs: t + scene.durationMs, index });
+    t += scene.durationMs;
+    index++;
+  }
+  return out;
+}
+
+export function projectDuration(project: Project): number {
+  return project.scenes.reduce((sum, s) => (s.hidden ? sum : sum + s.durationMs), 0);
+}
+
+/**
+ * The moment a scene has finished arriving — the still that represents it.
+ * Previews, the scene rail and any paused jump all use this, so a scene looks
+ * the same everywhere it is shown as a single image.
+ */
+export function settledOffset(scene: Scene | undefined): number {
+  if (!scene) return 0;
+  const lastEnd = scene.layers.reduce(
+    (max, l) => Math.max(max, l.enter.delayMs + l.enter.durationMs),
+    0,
+  );
+  return Math.max(0, Math.min(scene.durationMs - 1, lastEnd + 40));
+}
+
+export function windowAt(windows: SceneWindow[], tMs: number): SceneWindow | null {
+  if (windows.length === 0) return null;
+  const clamped = Math.max(0, Math.min(tMs, windows[windows.length - 1].endMs - 1));
+  for (const w of windows) {
+    if (clamped >= w.startMs && clamped < w.endMs) return w;
+  }
+  return windows[windows.length - 1];
+}
+
+/* ============================================================================
+   Frame resolution
+   ========================================================================== */
+
+export function resolveFrame(
+  project: Project,
+  tMs: number,
+  options: ResolveOptions = { reducedMotion: false },
+): FrameState {
+  const windows = sceneWindows(project);
+  const totalMs = windows.length ? windows[windows.length - 1].endMs : 0;
+
+  if (windows.length === 0) {
+    return {
+      tMs,
+      sceneIndex: -1,
+      sceneId: null,
+      sceneTMs: 0,
+      sceneDurationMs: 0,
+      layers: [],
+      transition: null,
+      caption: null,
+      activeCueId: null,
+      totalMs: 0,
+    };
+  }
+
+  const win = windowAt(windows, tMs)!;
+  const sceneTMs = Math.max(0, Math.min(tMs, win.endMs - 1) - win.startMs);
+  const scene = win.scene;
+
+  const layers = scene.layers
+    .filter((l) => !l.hidden)
+    .sort((a, b) => a.z - b.z)
+    .map((layer) => resolveLayer(layer, scene, sceneTMs, options));
+
+  // Transitions overlap the boundary so the outgoing scene can be cross-rendered.
+  let transition: FrameState['transition'] = null;
+  if (win.index > 0 && sceneTMs < TRANSITION_MS && scene.transitionIn !== 'cut') {
+    const prev = windows[win.index - 1];
+    transition = {
+      fromSceneId: prev.scene.id,
+      progress: options.reducedMotion ? 1 : sceneTMs / TRANSITION_MS,
+      kind: scene.transitionIn,
+    };
+  }
+
+  const activeCue = findActiveCue(scene, sceneTMs);
+  const caption = activeCue ? resolveCaption(activeCue, sceneTMs) : null;
+
+  return {
+    tMs,
+    sceneIndex: win.index,
+    sceneId: scene.id,
+    sceneTMs,
+    sceneDurationMs: scene.durationMs,
+    layers,
+    transition,
+    caption,
+    activeCueId: activeCue?.id ?? null,
+    totalMs,
+  };
+}
+
+function resolveLayer(
+  layer: Layer,
+  scene: Scene,
+  sceneTMs: number,
+  options: ResolveOptions,
+): ResolvedLayer {
+  const { enter } = layer;
+  const start = enter.delayMs;
+  const raw = enter.durationMs <= 0 ? 1 : clamp01((sceneTMs - start) / enter.durationMs);
+  const p = options.reducedMotion ? (sceneTMs >= start ? 1 : 0) : easeOut(raw);
+
+  let opacity = layer.opacity;
+  let tx = 0;
+  let ty = 0;
+  let scale = 1;
+  let clip: ResolvedLayer['clip'] = null;
+  let blur = 0;
+
+  if (options.reducedMotion) {
+    // Informational equivalent: a short opacity change, no movement.
+    if (enter.reducedMotion === 'fade') {
+      const fadeP = clamp01((sceneTMs - start) / 150);
+      opacity *= fadeP;
+    }
+  } else {
+    switch (enter.preset) {
+      case 'rise':
+        opacity *= p;
+        ty = (1 - p) * 0.028;
+        break;
+      case 'settle':
+        opacity *= p;
+        scale = 1 + (1 - p) * 0.035;
+        break;
+      case 'draw-on':
+        clip = { top: 0, right: 1 - p, bottom: 0, left: 0 };
+        break;
+      case 'crop-in':
+        opacity *= clamp01(p * 1.6);
+        clip = { top: (1 - p) * 0.14, right: (1 - p) * 0.14, bottom: (1 - p) * 0.14, left: (1 - p) * 0.14 };
+        scale = 1 + (1 - p) * 0.02;
+        break;
+      case 'unfold':
+        opacity *= p;
+        clip = { top: 0, right: 0, bottom: 1 - p, left: 0 };
+        break;
+      case 'trace':
+        clip = { top: 0, right: 1 - p, bottom: 0, left: 0 };
+        opacity *= clamp01(p * 3);
+        break;
+      case 'slide':
+        opacity *= p;
+        tx = (1 - p) * -0.03;
+        break;
+      case 'none':
+      default:
+        break;
+    }
+    if (p < 1 && (enter.preset === 'rise' || enter.preset === 'settle')) {
+      blur = (1 - p) * 1.6;
+    }
+  }
+
+  const highlights = resolveHighlights(layer, scene, sceneTMs, options);
+
+  return {
+    id: layer.id,
+    layer,
+    progress: p,
+    opacity,
+    tx,
+    ty,
+    scale,
+    clip,
+    blur,
+    highlights,
+    needsReview: needsReview(layer),
+  };
+}
+
+/* ============================================================================
+   Highlight that follows the voice
+   ========================================================================== */
+
+function resolveHighlights(
+  layer: Layer,
+  scene: Scene,
+  sceneTMs: number,
+  options: ResolveOptions,
+): ResolvedHighlight[] {
+  if (layer.emphasis.length === 0) return [];
+  const out: ResolvedHighlight[] = [];
+
+  for (const spec of layer.emphasis) {
+    if (spec.timing.mode === 'absolute') {
+      const { startMs, durationMs } = spec.timing;
+      const p = options.reducedMotion
+        ? sceneTMs >= startMs
+          ? 1
+          : 0
+        : clamp01((sceneTMs - startMs) / Math.max(1, durationMs));
+      if (p <= 0) continue;
+      out.push({
+        id: spec.id,
+        treatment: spec.treatment,
+        from: spec.wordRange[0],
+        to: spec.wordRange[0] + (spec.wordRange[1] - spec.wordRange[0]) * p,
+        colorToken: spec.colorToken,
+      });
+      continue;
+    }
+
+    // Word mode: the marker advances exactly as the narrator speaks.
+    const cue = cueForLayer(layer, scene);
+    if (!cue) continue;
+    const local = sceneTMs - cue.startMs;
+    if (local < 0) continue;
+
+    const spoken = spokenWords(cue, local);
+    if (spoken <= 0) continue;
+
+    const covered = Math.min(spec.wordRange[1], spec.wordRange[0] + spoken);
+    if (covered <= spec.wordRange[0]) continue;
+
+    out.push({
+      id: spec.id,
+      treatment: spec.treatment,
+      from: spec.wordRange[0],
+      to: options.reducedMotion ? Math.ceil(covered) : covered,
+      colorToken: spec.colorToken,
+    });
+  }
+
+  return out;
+}
+
+/** Fractional count of words spoken by local time, so the sweep is continuous. */
+function spokenWords(cue: NarrationCue, localMs: number): number {
+  const words = cue.words;
+  if (words.length === 0) return 0;
+  if (localMs >= cue.durationMs) return words.length;
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (localMs < w.startMs) return i;
+    if (localMs < w.endMs) {
+      const span = Math.max(1, w.endMs - w.startMs);
+      return i + clamp01((localMs - w.startMs) / span);
+    }
+  }
+  return words.length;
+}
+
+/**
+ * Match a text layer to the cue that speaks it. Composed scenes usually pair one
+ * body layer with one cue; where several exist we take the closest textual match.
+ */
+const cueMatchCache = new WeakMap<Layer, NarrationCue | null>();
+
+function cueForLayer(layer: Layer, scene: Scene): NarrationCue | null {
+  if (cueMatchCache.has(layer)) return cueMatchCache.get(layer) ?? null;
+
+  let result: NarrationCue | null = null;
+  if (layer.type === 'text') {
+    const layerText = normalize(layer.atoms.map((a) => a.text).join(' '));
+    let best = 0;
+    for (const cue of scene.narration) {
+      const cueText = normalize(cue.text);
+      const score =
+        cueText === layerText
+          ? 1
+          : cueText.startsWith(layerText.slice(0, 40)) || layerText.startsWith(cueText.slice(0, 40))
+            ? 0.8
+            : overlapRatio(layerText, cueText);
+      if (score > best) {
+        best = score;
+        result = cue;
+      }
+    }
+    if (best < 0.45) result = scene.narration[0] ?? null;
+  } else {
+    result = scene.narration[0] ?? null;
+  }
+
+  cueMatchCache.set(layer, result);
+  return result;
+}
+
+function overlapRatio(a: string, b: string): number {
+  const A = new Set(a.split(' '));
+  const B = new Set(b.split(' '));
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const w of A) if (B.has(w)) inter++;
+  return inter / Math.min(A.size, B.size);
+}
+
+function normalize(t: string): string {
+  return t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/* ============================================================================
+   Captions
+   ========================================================================== */
+
+function findActiveCue(scene: Scene, sceneTMs: number): NarrationCue | null {
+  for (const cue of scene.narration) {
+    if (sceneTMs >= cue.startMs && sceneTMs < cue.startMs + cue.durationMs) return cue;
+  }
+  return null;
+}
+
+function resolveCaption(cue: NarrationCue, sceneTMs: number): ResolvedCaption {
+  const local = sceneTMs - cue.startMs;
+  const spoken = spokenWords(cue, local);
+  const activeIndex = Math.floor(spoken);
+  return {
+    text: cue.text,
+    words: cue.words.map((w, i) => ({
+      text: w.text,
+      spoken: i < activeIndex,
+      active: i === activeIndex,
+    })),
+  };
+}
+
+/* ============================================================================
+   Utilities
+   ========================================================================== */
+
+function needsReview(layer: Layer): boolean {
+  if (layer.type === 'text') {
+    return layer.atoms.some((a) => a.provenance.kind === 'unsupported' && !a.provenance.reviewed);
+  }
+  if ('provenance' in layer) {
+    return layer.provenance.kind === 'unsupported' && !layer.provenance.reviewed;
+  }
+  return false;
+}
+
+function clamp01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+/** Matches --ease-out: cubic-bezier(0.16, 1, 0.3, 1) closely enough to be indistinguishable. */
+function easeOut(t: number): number {
+  return 1 - Math.pow(1 - t, 3.2);
+}
+
+export function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+export function findSceneStart(project: Project, sceneId: SceneId): number {
+  const windows = sceneWindows(project);
+  return windows.find((w) => w.scene.id === sceneId)?.startMs ?? 0;
+}

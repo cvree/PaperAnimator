@@ -1,0 +1,214 @@
+/* ============================================================================
+   Paper Animator — design tokens
+   Warm paper neutrals. One accent. Evidence colours carry meaning, never decoration.
+   ========================================================================== */
+
+:root {
+  /* ---- surfaces ------------------------------------------------------- */
+  --surface-page: oklch(98.4% 0.005 85);
+  --surface-raised: oklch(100% 0 0);
+  --surface-sunken: oklch(95.6% 0.007 85);
+  --surface-inset: oklch(93.4% 0.008 85);
+  --surface-inverse: oklch(20% 0.012 85);
+  --surface-scrim: oklch(20% 0.012 85 / 0.42);
+
+  /* ---- ink ------------------------------------------------------------ */
+  --ink-primary: oklch(20% 0.012 85);
+  --ink-secondary: oklch(43% 0.011 85);
+  --ink-tertiary: oklch(57% 0.009 85);
+  --ink-faint: oklch(70% 0.007 85);
+  --ink-inverse: oklch(97% 0.004 85);
+
+  /* ---- structure ------------------------------------------------------ */
+  --rule-hairline: oklch(88.5% 0.006 85);
+  --rule-strong: oklch(76% 0.008 85);
+  --rule-inverse: oklch(32% 0.010 85);
+
+  /* ---- accent: a single ink blue --------------------------------------- */
+  --accent: oklch(47% 0.152 252);
+  --accent-hover: oklch(41% 0.156 252);
+  --accent-press: oklch(36% 0.150 252);
+  --accent-subtle: oklch(95.5% 0.030 252);
+  --accent-quiet: oklch(90% 0.048 252);
+  --accent-ink: oklch(100% 0 0);
+
+  /* ---- evidence: meaning, always paired with an icon + label ----------- */
+  --ev-extracted: oklch(46% 0.112 155);
+  --ev-extracted-bg: oklch(95.5% 0.032 155);
+  --ev-paraphrase: oklch(50% 0.098 200);
+  --ev-paraphrase-bg: oklch(95.5% 0.030 200);
+  --ev-explanation: oklch(52% 0.110 250);
+  --ev-explanation-bg: oklch(95.5% 0.030 250);
+  --ev-connective: oklch(58% 0.018 85);
+  --ev-connective-bg: oklch(95% 0.008 85);
+  --ev-authored: oklch(48% 0.094 300);
+  --ev-authored-bg: oklch(95.5% 0.030 300);
+  --ev-unsupported: oklch(57% 0.148 55);
+  --ev-unsupported-bg: oklch(95.5% 0.044 55);
+
+  /* ---- highlight markers (presentation device, not evidence) ----------- */
+  --hl-yellow: oklch(91% 0.145 96);
+  --hl-mint: oklch(90% 0.105 165);
+  --hl-sky: oklch(89% 0.088 232);
+  --hl-rose: oklch(89% 0.080 15);
+  --hl-lilac: oklch(89% 0.078 300);
+
+  /* ---- danger --------------------------------------------------------- */
+  --danger: oklch(50% 0.192 27);
+  --danger-bg: oklch(95.5% 0.040 27);
+
+  /* ---- type ----------------------------------------------------------- */
+  --font-display: 'Newsreader Variable', 'Newsreader', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+  --step--2: clamp(0.7rem, 0.685rem + 0.075vw, 0.75rem);
+  --step--1: clamp(0.82rem, 0.79rem + 0.15vw, 0.9rem);
+  --step-0: clamp(0.95rem, 0.92rem + 0.16vw, 1.05rem);
+  --step-1: clamp(1.14rem, 1.08rem + 0.31vw, 1.33rem);
+  --step-2: clamp(1.37rem, 1.26rem + 0.53vw, 1.68rem);
+  --step-3: clamp(1.64rem, 1.47rem + 0.85vw, 2.13rem);
+  --step-4: clamp(1.97rem, 1.71rem + 1.31vw, 2.7rem);
+  --step-5: clamp(2.37rem, 1.97rem + 1.98vw, 3.42rem);
+  --step-6: clamp(2.6rem, 2.16rem + 2.2vw, 3.6rem);
+  --step-7: clamp(2.9rem, 2.34rem + 2.8vw, 4.3rem);
+
+  --leading-flush: 0.94;
+  --leading-tight: 1.08;
+  --leading-snug: 1.28;
+  --leading-body: 1.62;
+  --leading-loose: 1.75;
+  --measure: 64ch;
+  --measure-narrow: 46ch;
+
+  /* ---- space ---------------------------------------------------------- */
+  --space-px: 1px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+  --space-10: 8rem;
+
+  /* ---- radius: editorial, never pill ---------------------------------- */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ---- depth: rules first, one soft shadow, a whisper of light -------- */
+  --shadow-hairline: 0 0 0 1px var(--rule-hairline);
+  --shadow-raised:
+    0 1px 1px oklch(20% 0.012 85 / 0.04), 0 2px 6px oklch(20% 0.012 85 / 0.045),
+    0 8px 20px oklch(20% 0.012 85 / 0.035);
+  --shadow-float:
+    0 1px 2px oklch(20% 0.012 85 / 0.06), 0 6px 16px oklch(20% 0.012 85 / 0.08),
+    0 20px 48px oklch(20% 0.012 85 / 0.09);
+  --shadow-lift:
+    0 2px 4px oklch(20% 0.012 85 / 0.07), 0 12px 28px oklch(20% 0.012 85 / 0.11),
+    0 40px 80px oklch(20% 0.012 85 / 0.10);
+  /* directional sheen for lifted paper — light comes from above-left */
+  --sheen: linear-gradient(157deg, oklch(100% 0 0 / 0.55) 0%, oklch(100% 0 0 / 0) 42%);
+
+  /* ---- motion --------------------------------------------------------- */
+  --dur-instant: 90ms;
+  --dur-quick: 160ms;
+  --dur-base: 240ms;
+  --dur-slow: 380ms;
+  --dur-deliberate: 640ms;
+  --dur-cinematic: 1100ms;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-ink: cubic-bezier(0.33, 0, 0.15, 1);
+  --ease-settle: cubic-bezier(0.34, 1.26, 0.64, 1);
+  --ease-lift: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* ---- layout --------------------------------------------------------- */
+  --topbar-h: 3.5rem;
+  --z-canvas: 1;
+  --z-sticky: 20;
+  --z-drag: 60;
+  --z-overlay: 80;
+  --z-toast: 100;
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+   Press — the dark ambient. Not an inversion: a different material.
+   ========================================================================== */
+:root[data-theme='press'] {
+  --surface-page: oklch(16.5% 0.010 85);
+  --surface-raised: oklch(20.5% 0.011 85);
+  --surface-sunken: oklch(13.5% 0.009 85);
+  --surface-inset: oklch(11.5% 0.008 85);
+  --surface-inverse: oklch(96% 0.004 85);
+  --surface-scrim: oklch(8% 0.010 85 / 0.6);
+
+  --ink-primary: oklch(95.5% 0.004 85);
+  --ink-secondary: oklch(75% 0.008 85);
+  --ink-tertiary: oklch(59% 0.009 85);
+  --ink-faint: oklch(45% 0.009 85);
+  --ink-inverse: oklch(18% 0.012 85);
+
+  --rule-hairline: oklch(28.5% 0.010 85);
+  --rule-strong: oklch(41% 0.011 85);
+  --rule-inverse: oklch(80% 0.008 85);
+
+  --accent: oklch(74% 0.138 252);
+  --accent-hover: oklch(80% 0.130 252);
+  --accent-press: oklch(68% 0.140 252);
+  --accent-subtle: oklch(26% 0.058 252);
+  --accent-quiet: oklch(32% 0.070 252);
+  --accent-ink: oklch(15% 0.020 252);
+
+  --ev-extracted: oklch(74% 0.132 155);
+  --ev-extracted-bg: oklch(25% 0.048 155);
+  --ev-paraphrase: oklch(76% 0.098 200);
+  --ev-paraphrase-bg: oklch(25% 0.042 200);
+  --ev-explanation: oklch(76% 0.104 250);
+  --ev-explanation-bg: oklch(25% 0.044 250);
+  --ev-connective: oklch(66% 0.016 85);
+  --ev-connective-bg: oklch(24% 0.008 85);
+  --ev-authored: oklch(76% 0.098 300);
+  --ev-authored-bg: oklch(25% 0.044 300);
+  --ev-unsupported: oklch(78% 0.142 62);
+  --ev-unsupported-bg: oklch(27% 0.058 62);
+
+  --hl-yellow: oklch(64% 0.132 96);
+  --hl-mint: oklch(60% 0.098 165);
+  --hl-sky: oklch(60% 0.088 232);
+  --hl-rose: oklch(60% 0.080 15);
+  --hl-lilac: oklch(60% 0.078 300);
+
+  --danger: oklch(70% 0.170 27);
+  --danger-bg: oklch(27% 0.062 27);
+
+  --shadow-raised:
+    0 1px 1px oklch(0% 0 0 / 0.3), 0 2px 6px oklch(0% 0 0 / 0.28), 0 8px 20px oklch(0% 0 0 / 0.24);
+  --shadow-float:
+    0 1px 2px oklch(0% 0 0 / 0.36), 0 6px 16px oklch(0% 0 0 / 0.4), 0 20px 48px oklch(0% 0 0 / 0.38);
+  --shadow-lift:
+    0 2px 4px oklch(0% 0 0 / 0.4), 0 12px 28px oklch(0% 0 0 / 0.46), 0 40px 80px oklch(0% 0 0 / 0.44);
+  --sheen: linear-gradient(157deg, oklch(100% 0 0 / 0.07) 0%, oklch(100% 0 0 / 0) 42%);
+
+  color-scheme: dark;
+}
+
+/* Higher contrast preference: hairlines become visible structure. */
+@media (prefers-contrast: more) {
+  :root {
+    --rule-hairline: var(--rule-strong);
+    --ink-secondary: var(--ink-primary);
+    --ink-tertiary: oklch(38% 0.011 85);
+  }
+  :root[data-theme='press'] {
+    --ink-tertiary: oklch(72% 0.009 85);
+  }
+}
