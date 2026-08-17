@@ -30,15 +30,17 @@ export function EditorTopBar() {
           <p className="truncate text-xs font-medium leading-tight text-[var(--ink-primary)]">
             {project.title}
           </p>
-          <p className="text-2xs leading-tight text-[var(--ink-faint)]">
+          <p className="hidden text-2xs leading-tight text-[var(--ink-faint)] sm:block">
             {project.scenes.length} scenes · {project.paper.meta.pageCount} pages
           </p>
         </div>
       </div>
 
-      <div className="mx-1 h-6 w-px shrink-0 bg-[var(--rule-hairline)]" />
+      <div className="mx-1 hidden h-6 w-px shrink-0 bg-[var(--rule-hairline)] sm:block" />
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      {/* Undo and redo need room the phone does not have; they stay on the
+          keyboard there, and the storyboard offers the same corrections. */}
+      <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
         <IconBtn label="Undo" disabled={past === 0} onClick={undo}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
             <path d="M4 5H9a3 3 0 0 1 0 6H6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -53,7 +55,7 @@ export function EditorTopBar() {
         </IconBtn>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
         {/* style picker */}
         <div className="relative hidden sm:block">
           <button
@@ -228,10 +230,10 @@ export function IntegrityMeter({
           />
         </svg>
       </span>
-      <span className="numeral text-2xs tabular-nums text-[var(--ink-secondary)]">
+      <span className="numeral hidden text-2xs tabular-nums text-[var(--ink-secondary)] sm:inline">
         {score}
       </span>
-      <span className="sr-only">out of 100 grounded</span>
+      <span className="sr-only">{score} out of 100 grounded</span>
     </button>
   );
 }

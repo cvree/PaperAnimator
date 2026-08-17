@@ -3,6 +3,7 @@ import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { HeroTransformation } from './HeroTransformation';
 import { Dropzone } from './Dropzone';
+import { HighlightDemo, DragDemo, ProveDemo } from './Demos';
 import { useApp } from '@/state/store';
 import { PROVENANCE_META } from '@/core/types';
 
@@ -146,6 +147,10 @@ export function Landing({ onFile, onSample }: Props) {
               demo={<ProveDemo />}
             />
           </div>
+          <p className="mt-4 text-2xs text-[var(--ink-faint)]">
+            All three are live — read the sentence aloud, drag the figure, pull the thread. The
+            words and the number are illustrative; the mechanisms are the real ones.
+          </p>
         </section>
 
         <Divider />
@@ -260,8 +265,11 @@ export function Landing({ onFile, onSample }: Props) {
 function SiteHeader() {
   const toggleTheme = useApp((s) => s.toggleTheme);
   const theme = useApp((s) => s.theme);
+  // Opaque enough that scrolled type never ghosts through the bar. At 86% the
+  // words of the hero read straight through the header, which looks like a
+  // rendering fault rather than like glass.
   return (
-    <header className="sticky top-0 z-30 border-b border-[var(--rule-hairline)] bg-[color-mix(in_oklch,var(--surface-page)_86%,transparent)] backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-[var(--rule-hairline)] bg-[color-mix(in_oklch,var(--surface-page)_97%,transparent)] backdrop-blur-md">
       <div className="mx-auto flex h-14 w-full max-w-[86rem] items-center justify-between px-[max(1.25rem,4vw)]">
         <div className="flex items-center gap-2.5">
           <Mark />
@@ -273,8 +281,16 @@ function SiteHeader() {
           type="button"
           onClick={toggleTheme}
           className="flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] px-2.5 text-2xs text-[var(--ink-tertiary)] transition-colors hover:border-[var(--rule-strong)] hover:text-[var(--ink-primary)]"
-          aria-label={`Switch to ${theme === 'paper' ? 'dark' : 'light'} appearance`}
+          aria-label={`Switch to ${theme === 'paper' ? 'the dark Press appearance' : 'the light Paper appearance'}`}
+          title={theme === 'paper' ? 'Switch to Press (dark)' : 'Switch to Paper (light)'}
         >
+          {/* A slug of the ground it switches to, so the control shows its
+              own result rather than asking to be read. */}
+          <span
+            aria-hidden="true"
+            className="h-3.5 w-3.5 rounded-[2px] border border-[var(--rule-strong)]"
+            style={{ background: theme === 'paper' ? 'oklch(20% 0.012 85)' : 'oklch(97% 0.006 85)' }}
+          />
           <span className="label" style={{ letterSpacing: '0.08em' }}>
             {theme === 'paper' ? 'Paper' : 'Press'}
           </span>
@@ -346,144 +362,9 @@ function Interaction({
           {title}
         </h3>
       </div>
-      <div className="mb-6 min-h-[8.5rem]">{demo}</div>
-      <p className="mt-auto text-base leading-[1.6] text-[var(--ink-secondary)]">{body}</p>
+      <div className="mb-6">{demo}</div>
+      <p className="text-base leading-[1.6] text-[var(--ink-secondary)]">{body}</p>
     </div>
-  );
-}
-
-function DemoFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="relative h-[8.5rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--rule-hairline)] bg-[var(--surface-raised)] p-4">
-      {children}
-    </div>
-  );
-}
-
-function HighlightDemo() {
-  return (
-    <DemoFrame>
-      <div className="flex h-full flex-col justify-center gap-[6px]">
-        <Bar w="92%" />
-        <div className="relative py-[3px]">
-          <div
-            className="absolute inset-x-[-4px] inset-y-0 origin-left rounded-[1px] motion-safe:animate-[sweep_2.6s_var(--ease-ink)_infinite]"
-            style={{ background: 'var(--hl-yellow)', opacity: 0.7 }}
-          />
-          <div className="relative flex flex-col gap-[6px]">
-            <Bar w="100%" tone="ink" />
-            <Bar w="74%" tone="ink" />
-          </div>
-        </div>
-        <Bar w="88%" />
-        <Bar w="60%" />
-      </div>
-      <style>{`@keyframes sweep{0%{transform:scaleX(0)}42%{transform:scaleX(1)}88%{transform:scaleX(1)}100%{transform:scaleX(0)}}`}</style>
-    </DemoFrame>
-  );
-}
-
-function DragDemo() {
-  return (
-    <DemoFrame>
-      <div className="flex h-full items-center gap-4">
-        <div className="flex flex-1 flex-col gap-[6px]">
-          <Bar w="90%" />
-          <Bar w="76%" />
-          <div
-            className="mt-1 rounded-[2px] border border-[var(--rule-hairline)] bg-[var(--surface-sunken)] p-2 motion-safe:animate-[lift_3s_var(--ease-out)_infinite]"
-            style={{ transformOrigin: 'center' }}
-          >
-            <svg viewBox="0 0 60 26" className="w-full">
-              {[0.4, 0.7, 0.55, 0.9].map((v, i) => (
-                <rect
-                  key={i}
-                  x={4 + i * 14}
-                  y={22 - v * 18}
-                  width="8"
-                  height={v * 18}
-                  fill={i === 3 ? 'var(--accent)' : 'var(--ink-faint)'}
-                  opacity={i === 3 ? 0.9 : 0.45}
-                />
-              ))}
-            </svg>
-          </div>
-        </div>
-        <svg width="22" height="10" viewBox="0 0 22 10" fill="none" aria-hidden="true" className="shrink-0">
-          <path d="M0 5h19m0 0-4-4m4 4-4 4" stroke="var(--ink-faint)" strokeWidth="1.1" strokeLinecap="round" />
-        </svg>
-        <div className="flex h-[4.6rem] flex-1 items-center justify-center rounded-[2px] border border-dashed border-[var(--rule-strong)] bg-[var(--surface-sunken)]">
-          <span className="label" style={{ fontSize: '0.55rem' }}>
-            Scene 4
-          </span>
-        </div>
-      </div>
-      <style>{`@keyframes lift{0%,55%{transform:translate(0,0) rotate(0);box-shadow:none}70%{transform:translate(6px,-5px) rotate(-1.4deg);box-shadow:var(--shadow-float)}100%{transform:translate(0,0) rotate(0);box-shadow:none}}`}</style>
-    </DemoFrame>
-  );
-}
-
-function ProveDemo() {
-  return (
-    <DemoFrame>
-      <div className="relative flex h-full items-center gap-3">
-        <div className="flex-1 rounded-[2px] border border-[var(--rule-hairline)] bg-[var(--surface-sunken)] p-2.5">
-          <div className="numeral text-lg leading-none text-[var(--ink-primary)]">31.4%</div>
-          <div className="mt-1.5 text-[0.55rem] text-[var(--ink-faint)]">95% CI 24.8–37.9</div>
-        </div>
-        <svg
-          viewBox="0 0 60 40"
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          fill="none"
-          preserveAspectRatio="none"
-        >
-          <path
-            d="M22 20 C 32 20, 34 14, 44 14"
-            stroke="var(--accent)"
-            strokeWidth="0.7"
-            strokeDasharray="60"
-            className="motion-safe:animate-[thread_3s_var(--ease-in-out)_infinite]"
-          />
-        </svg>
-        <div className="flex-1 rounded-[2px] border border-[var(--rule-hairline)] bg-[var(--surface-raised)] p-2.5">
-          <div className="mb-1.5 flex items-center gap-1">
-            <span className="label" style={{ fontSize: '0.5rem' }}>
-              Page 7
-            </span>
-          </div>
-          <div className="flex flex-col gap-[4px]">
-            <Bar w="100%" h={2.5} />
-            <div className="relative">
-              <div
-                className="absolute inset-x-[-2px] inset-y-[-1px] rounded-[1px] motion-safe:animate-[pulse2_3s_ease-in-out_infinite]"
-                style={{ background: 'var(--accent)', opacity: 0.16 }}
-              />
-              <Bar w="86%" h={2.5} tone="ink" />
-            </div>
-            <Bar w="94%" h={2.5} />
-            <Bar w="52%" h={2.5} />
-          </div>
-        </div>
-      </div>
-      <style>{`
-        @keyframes thread{0%,10%{stroke-dashoffset:60}45%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:60}}
-        @keyframes pulse2{0%,30%{opacity:0}50%,85%{opacity:0.18}100%{opacity:0}}
-      `}</style>
-    </DemoFrame>
-  );
-}
-
-function Bar({ w, h = 3, tone = 'faint' }: { w: string; h?: number; tone?: 'ink' | 'faint' }) {
-  return (
-    <div
-      style={{
-        width: w,
-        height: h,
-        borderRadius: 1,
-        background: tone === 'ink' ? 'var(--ink-primary)' : 'var(--ink-faint)',
-        opacity: tone === 'ink' ? 0.7 : 0.34,
-      }}
-    />
   );
 }
 
