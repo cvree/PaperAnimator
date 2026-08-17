@@ -141,28 +141,35 @@ function paintText(
     if (layer.align === 'center') cursorX = x + (w - ctx.measureText(line.text).width) / 2;
     if (layer.align === 'end') cursorX = x + w - ctx.measureText(line.text).width;
 
-    // marker first, so text sits on top of it
+    // The marker goes down first, so the text sits on top of it. It is one
+    // continuous stroke per line: a rectangle per word leaves a pale gap at
+    // every space, which reads as a printing fault rather than a highlighter.
     if (sweep) {
-      let markerX = cursorX;
-      for (const word of line.words) {
-        const wordW = ctx.measureText(word).width;
-        const spaceW = ctx.measureText(' ').width;
-        const covered = sweep.to - wordIndex;
-        if (wordIndex >= sweep.from && covered > 0) {
-          const pct = Math.min(1, covered);
-          const pad = spec.size * o.height * 0.1;
-          ctx.fillStyle = style.tokens.marker;
-          ctx.fillRect(
-            markerX - pad,
-            lineY - spec.size * o.height * 0.8,
-            wordW * pct + pad * 2,
-            spec.size * o.height * 1.12,
-          );
+      const spaceW = ctx.measureText(' ').width;
+      let runStart: number | null = null;
+      let runEnd = 0;
+      let cx = cursorX;
+
+      for (let k = 0; k < line.words.length; k++) {
+        const wordW = ctx.measureText(line.words[k]).width;
+        const covered = sweep.to - (wordIndex + k);
+        if (wordIndex + k >= sweep.from && covered > 0) {
+          if (runStart === null) runStart = cx;
+          runEnd = cx + wordW * Math.min(1, covered);
         }
-        markerX += wordW + spaceW;
-        wordIndex++;
+        cx += wordW + spaceW;
       }
-      wordIndex -= line.words.length;
+
+      if (runStart !== null) {
+        const pad = spec.size * o.height * 0.1;
+        ctx.fillStyle = style.tokens.marker;
+        ctx.fillRect(
+          runStart - pad,
+          lineY - spec.size * o.height * 0.78,
+          runEnd - runStart + pad * 2,
+          spec.size * o.height * 1.06,
+        );
+      }
     }
 
     ctx.fillStyle = color;

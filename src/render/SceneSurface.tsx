@@ -337,7 +337,21 @@ function Word({
       >
         {text}
       </span>
-      {' '}
+      {/* The space carries the marker too, once the reading has passed it.
+          Leaving it bare puts a pale nick between every word, which reads as a
+          rendering fault rather than as one stroke of a highlighter. */}
+      <span
+        style={{
+          backgroundImage:
+            sweep && index >= sweep.from && sweep.to > index + 1
+              ? `linear-gradient(${style.tokens.marker}, ${style.tokens.marker})`
+              : undefined,
+          boxDecorationBreak: 'clone',
+          WebkitBoxDecorationBreak: 'clone',
+        }}
+      >
+        {' '}
+      </span>
     </>
   );
 }

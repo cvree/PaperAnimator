@@ -4,3 +4,6 @@ dist/
 
 # Screenshots from the visual-inspection harness are working output, not source.
 shots/
+
+# Output of the export verification harness.
+exports-check/

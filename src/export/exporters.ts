@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import PptxGenJS from 'pptxgenjs';
 import type { Project, Scene } from '@/core/types';
 import { ASPECT_DIMS, provenanceRef } from '@/core/types';
@@ -82,6 +82,14 @@ async function ensureFonts(): Promise<void> {
    ========================================================================== */
 
 export function videoSupported(): boolean {
+  return webCodecsSupported() || mediaRecorderSupported();
+}
+
+function webCodecsSupported(): boolean {
+  return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
+}
+
+function mediaRecorderSupported(): boolean {
   return (
     typeof MediaRecorder !== 'undefined' &&
     (MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ||
@@ -109,7 +117,149 @@ export async function exportVideo(
   const { canvas, ctx, width, height } = stageFor(project, options.scale);
   const images = await loadImages(projectImageUrls(project));
   const total = projectDuration(project);
-  const frameCount = Math.ceil((total / 1000) * options.fps);
+  const frameCount = Math.max(1, Math.ceil((total / 1000) * options.fps));
+
+  const paintAt = (i: number) => {
+    const frame = resolveFrame(project, (i / options.fps) * 1000, { reducedMotion: false });
+    paintFrame(ctx, frame, project.style, {
+      width,
+      height,
+      captions: options.burnCaptions && project.settings.captionsEnabled,
+      images,
+    });
+  };
+
+  const blob = webCodecsSupported()
+    ? await encodeWithWebCodecs(canvas, paintAt, frameCount, width, height, options)
+    : await recordInRealTime(canvas, paintAt, frameCount, width, height, options);
+
+  return {
+    format: 'webm',
+    name: `${slugify(project.title)}.webm`,
+    blob,
+    bytes: blob.size,
+    detail: `${width}×${height} · ${options.fps} fps · ${(total / 1000).toFixed(1)}s`,
+  };
+}
+
+/**
+ * Every frame is stamped with the time it represents, not the time it happened
+ * to be drawn.
+ *
+ * MediaRecorder timestamps by wall clock, so rendering 2,700 frames as fast as
+ * the machine can manage produces a file that opens, looks right, and plays a
+ * ninety-second talk in seven seconds. The encoder is given explicit
+ * timestamps instead, which also means the export runs as fast as the hardware
+ * allows rather than in real time.
+ */
+async function encodeWithWebCodecs(
+  canvas: HTMLCanvasElement,
+  paintAt: (i: number) => void,
+  frameCount: number,
+  width: number,
+  height: number,
+  options: ExportOptions,
+): Promise<Blob> {
+  const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
+  const codecs = ['vp09.00.10.08', 'vp8'] as const;
+
+  let codec: string | null = null;
+  for (const c of codecs) {
+    const support = await VideoEncoder.isConfigSupported({ codec: c, width, height });
+    if (support.supported) {
+      codec = c;
+      break;
+    }
+  }
+  if (!codec) return recordInRealTime(canvas, paintAt, frameCount, width, height, options);
+
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({
+    target,
+    video: { codec: codec.startsWith('vp09') ? 'V_VP9' : 'V_VP8', width, height },
+    firstTimestampBehavior: 'offset',
+  });
+
+  let failure: Error | null = null;
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: (e) => {
+      failure = e as Error;
+    },
+  });
+  encoder.configure({
+    codec,
+    width,
+    height,
+    bitrate: Math.round(width * height * options.fps * 0.12),
+    framerate: options.fps,
+  });
+
+  const frameDurationUs = Math.round(1_000_000 / options.fps);
+
+  for (let i = 0; i < frameCount; i++) {
+    if (options.signal?.aborted) {
+      encoder.close();
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    if (failure) throw failure;
+
+    paintAt(i);
+    const frame = new VideoFrame(canvas, {
+      timestamp: i * frameDurationUs,
+      duration: frameDurationUs,
+    });
+    // A keyframe every two seconds keeps seeking responsive without bloating.
+    encoder.encode(frame, { keyFrame: i % (options.fps * 2) === 0 });
+    frame.close();
+
+    if (i % 6 === 0) {
+      options.onProgress({
+        stage: 'Rendering frames',
+        progress: i / frameCount,
+        detail: `${i} / ${frameCount}`,
+      });
+      // Let the encoder drain so memory does not climb with the whole talk.
+      if (encoder.encodeQueueSize > 24) await drainEncoder(encoder);
+      await nextTick();
+    }
+  }
+
+  options.onProgress({ stage: 'Finishing the file', progress: 0.97 });
+  await encoder.flush();
+  encoder.close();
+  muxer.finalize();
+  if (failure) throw failure;
+
+  return new Blob([target.buffer as BlobPart], { type: 'video/webm' });
+}
+
+function drainEncoder(encoder: VideoEncoder): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (encoder.encodeQueueSize <= 8) resolve();
+      else setTimeout(check, 8);
+    };
+    check();
+  });
+}
+
+/**
+ * The fallback for browsers without WebCodecs. MediaRecorder only produces
+ * honest timing if the frames are fed to it in real time, so this one takes as
+ * long as the talk does — which is why it is the fallback.
+ */
+async function recordInRealTime(
+  canvas: HTMLCanvasElement,
+  paintAt: (i: number) => void,
+  frameCount: number,
+  width: number,
+  height: number,
+  options: ExportOptions,
+): Promise<Blob> {
+  if (!mediaRecorderSupported()) {
+    throw new Error('This browser cannot record video. Try the PNG slides or the slide deck.');
+  }
 
   const stream = canvas.captureStream(0);
   const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
@@ -122,51 +272,43 @@ export async function exportVideo(
   recorder.ondataavailable = (e) => {
     if (e.data.size) chunks.push(e.data);
   };
-
   const done = new Promise<Blob>((resolve) => {
     recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
   });
 
   recorder.start();
+  const started = performance.now();
+  const frameMs = 1000 / options.fps;
 
-  // Deterministic seek: one resolveFrame per output frame, no wall clock.
   for (let i = 0; i < frameCount; i++) {
     if (options.signal?.aborted) {
       recorder.stop();
       throw new DOMException('Aborted', 'AbortError');
     }
-    const tMs = (i / options.fps) * 1000;
-    const frame = resolveFrame(project, tMs, { reducedMotion: false });
-    paintFrame(ctx, frame, project.style, {
-      width,
-      height,
-      captions: options.burnCaptions && project.settings.captionsEnabled,
-      images,
-    });
+    paintAt(i);
     track.requestFrame();
 
     if (i % 6 === 0) {
       options.onProgress({
-        stage: 'Rendering frames',
+        stage: 'Recording in real time',
         progress: i / frameCount,
         detail: `${i} / ${frameCount}`,
       });
-      await nextTick();
     }
+    const due = started + (i + 1) * frameMs;
+    const wait = due - performance.now();
+    if (wait > 0) await sleep(wait);
+    else await nextTick();
   }
 
   options.onProgress({ stage: 'Finishing the file', progress: 0.98 });
-  await nextTick();
+  await sleep(frameMs * 2);
   recorder.stop();
-  const blob = await done;
+  return done;
+}
 
-  return {
-    format: 'webm',
-    name: `${slugify(project.title)}.webm`,
-    blob,
-    bytes: blob.size,
-    detail: `${width}×${height} · ${options.fps} fps · ${(total / 1000).toFixed(1)}s`,
-  };
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /* ============================================================================
@@ -318,6 +460,12 @@ export async function exportPdf(project: Project, options: ExportOptions): Promi
 
   const pdf = await PDFDocument.create();
   pdf.setTitle(project.title);
+  pdf.setSubject(`Made from a ${project.paper.meta.pageCount}-page paper. Every line is quoted from it.`);
+  pdf.setProducer('Paper Animator');
+  pdf.setCreator('Paper Animator');
+  if (project.paper.meta.authors.length) {
+    pdf.setAuthor(project.paper.meta.authors.map((a) => a.name).join(', '));
+  }
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const scenes = project.scenes.filter((s) => !s.hidden);
 
@@ -330,6 +478,7 @@ export async function exportPdf(project: Project, options: ExportOptions): Promi
     const png = await pdf.embedPng(await blob.arrayBuffer());
     const page = pdf.addPage([pageW, pageH]);
     page.drawImage(png, { x: 0, y: 0, width: pageW, height: pageH });
+    drawInvisibleText(page, scenes[i], font, pageW, pageH);
     options.onProgress({
       stage: 'Writing the PDF',
       progress: (i + 1) / (scenes.length + 1),
@@ -654,6 +803,80 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+}
+
+/**
+ * The slide is a rendered image, which is what guarantees it matches the
+ * preview exactly. That would leave a PDF nobody can search, copy from or hear
+ * read aloud, so the same words go down again in invisible text — the trick
+ * scanned documents use — positioned over the page they belong to.
+ */
+function drawInvisibleText(
+  page: PDFPage,
+  scene: Scene,
+  font: PDFFont,
+  pageW: number,
+  pageH: number,
+): void {
+  const said = scene.narration.map((c) => c.text);
+  const shown = scene.layers.flatMap((l) => {
+    if (l.hidden) return [];
+    if (l.type === 'text') return [l.atoms.map((a) => a.text).join('')];
+    if (l.type === 'quote') return [l.text];
+    if (l.type === 'stat') return [l.display, ...l.qualifiers, l.caption ?? ''];
+    if (l.type === 'figure' || l.type === 'table') return [l.caption ?? '', l.altText ?? ''];
+    return [];
+  });
+
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [scene.title, ...shown, ...said]) {
+    const text = raw.replace(/\s+/g, ' ').trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    for (const chunk of wrapForWidth(text, font, 9, pageW - 48)) lines.push(chunk);
+  }
+
+  let y = pageH - 24;
+  for (const line of lines) {
+    if (y < 16) break;
+    page.drawText(sanitizeForWinAnsi(line), {
+      x: 24,
+      y,
+      size: 9,
+      font,
+      color: rgb(0, 0, 0),
+      opacity: 0,
+    });
+    y -= 11;
+  }
+}
+
+function wrapForWidth(text: string, font: PDFFont, size: number, max: number): string[] {
+  const words = text.split(' ');
+  const out: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (font.widthOfTextAtSize(sanitizeForWinAnsi(next), size) > max && line) {
+      out.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/** Helvetica is WinAnsi-encoded; a stray typographic dash would throw. */
+function sanitizeForWinAnsi(text: string): string {
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u2026/g, '...')
+    .replace(/[^\x20-\xFF]/g, '?');
 }
 
 export function download(result: ExportResult): void {
