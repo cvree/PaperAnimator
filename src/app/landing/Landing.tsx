@@ -213,27 +213,28 @@ export function Landing({ onFile, onSample }: Props) {
 
           <div
             data-reveal-group
-            className="mt-[clamp(2rem,4vw,3rem)] flex flex-wrap gap-2"
+            className="mt-[clamp(2rem,4vw,3rem)] grid gap-px overflow-hidden rounded-[var(--radius-lg)] border border-[var(--rule-hairline)] bg-[var(--rule-hairline)] sm:grid-cols-2 lg:grid-cols-4"
           >
-            {[
-              'WebM video',
-              'PNG slides',
-              'PPTX deck',
-              'PDF',
-              'SRT captions',
-              'WebVTT',
-              'Transcript',
-              'Project file',
-            ].map((f) => (
-              <span
+            {EXPORT_FORMATS.map((f) => (
+              <div
                 data-reveal-item
-                key={f}
-                className="rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] bg-[var(--surface-raised)] px-3.5 py-2 text-xs text-[var(--ink-secondary)]"
+                key={f.name}
+                className="bg-[var(--surface-page)] p-5 transition-colors duration-300 hover:bg-[var(--surface-raised)]"
               >
-                {f}
-              </span>
+                <p className="numeral text-2xs uppercase tracking-[0.1em] text-[var(--ink-faint)]">
+                  {f.ext}
+                </p>
+                <p className="mt-1.5 text-base font-medium text-[var(--ink-primary)]">{f.name}</p>
+                <p className="mt-1.5 text-xs leading-[1.55] text-[var(--ink-tertiary)]">{f.what}</p>
+              </div>
             ))}
           </div>
+
+          <p className="mt-4 max-w-[62ch] text-2xs leading-[1.55] text-[var(--ink-faint)]">
+            Narration is read by your browser's own speech engine, which cannot be captured into a
+            video file, so the video is silent and carries captions. The captions, transcript and
+            speaker notes contain every spoken line with the page it came from.
+          </p>
         </section>
 
         <Divider />
@@ -265,11 +266,11 @@ export function Landing({ onFile, onSample }: Props) {
 function SiteHeader() {
   const toggleTheme = useApp((s) => s.toggleTheme);
   const theme = useApp((s) => s.theme);
-  // Opaque enough that scrolled type never ghosts through the bar. At 86% the
-  // words of the hero read straight through the header, which looks like a
-  // rendering fault rather than like glass.
+  // Solid. Any translucency at all lets the display serif ghost through the
+  // masthead as it scrolls under, which reads as a rendering fault rather than
+  // as glass.
   return (
-    <header className="sticky top-0 z-30 border-b border-[var(--rule-hairline)] bg-[color-mix(in_oklch,var(--surface-page)_97%,transparent)] backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-[var(--rule-hairline)] bg-[var(--surface-page)]">
       <div className="mx-auto flex h-14 w-full max-w-[86rem] items-center justify-between px-[max(1.25rem,4vw)]">
         <div className="flex items-center gap-2.5">
           <Mark />
@@ -310,6 +311,17 @@ export function Mark({ size = 20 }: { size?: number }) {
     </svg>
   );
 }
+
+const EXPORT_FORMATS = [
+  { ext: 'webm', name: 'Video', what: 'The talk as you watched it, with the marker moving.' },
+  { ext: 'zip', name: 'PNG slides', what: 'One image per scene, at the resolution you choose.' },
+  { ext: 'pptx', name: 'PowerPoint', what: 'An editable deck. Speaker notes carry the sources.' },
+  { ext: 'pdf', name: 'PDF', what: 'Searchable and readable aloud, with a source appendix.' },
+  { ext: 'srt', name: 'SRT captions', what: 'For anything that takes a subtitle track.' },
+  { ext: 'vtt', name: 'WebVTT', what: 'The same cues, for the web.' },
+  { ext: 'txt', name: 'Transcript', what: 'Every line, timed, with the page it came from.' },
+  { ext: 'paperanim', name: 'Project file', what: 'Reopen and keep editing. Your assets travel with it.' },
+] as const;
 
 function Divider() {
   return (

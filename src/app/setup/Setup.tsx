@@ -99,7 +99,7 @@ export function Setup({ onBack }: { onBack: () => void }) {
 
   return (
     <div ref={root} className="grain flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-30 border-b border-[var(--rule-hairline)] bg-[color-mix(in_oklch,var(--surface-page)_88%,transparent)] backdrop-blur-md">
+      <header className="sticky top-0 z-30 border-b border-[var(--rule-hairline)] bg-[var(--surface-page)]">
         <div className="mx-auto flex h-14 w-full max-w-[92rem] items-center justify-between px-[max(1.25rem,3vw)]">
           <div className="flex items-center gap-2.5">
             <Mark />
