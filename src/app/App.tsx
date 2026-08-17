@@ -6,6 +6,7 @@ import { Editor } from './editor/Editor';
 import { Toasts } from '@/ui/Toasts';
 import { useApp } from '@/state/store';
 import { extractPaper, PdfIntakeError, type Artifact, type PaperSession } from '@/extract/pdf';
+import { collectDiagnostics } from '@/core/diagnostics';
 import { buildSamplePaper } from './sample';
 
 export default function App() {
@@ -70,10 +71,25 @@ export default function App() {
         if (err instanceof PdfIntakeError) {
           setProcessing((p) => ({
             ...p,
-            error: { title: err.message, detail: err.detail, remedy: err.remedy },
+            error: {
+              title: err.message,
+              detail: err.detail,
+              remedy: err.remedy,
+              diagnostics: err.diagnostics,
+            },
           }));
         } else {
           console.error(err);
+          // The document opened, so this is a fault in our own reading of it.
+          // The report says which stage stopped and on what, so the failure is
+          // reportable instead of merely regrettable.
+          const diagnostics = await collectDiagnostics({
+            phase: 'extracting the paper (after the document opened)',
+            route: 'document already open',
+            file: file.name,
+            error: err,
+            pdfjsVersion: 'see load route',
+          });
           setProcessing((p) => ({
             ...p,
             error: {
@@ -81,6 +97,7 @@ export default function App() {
               detail:
                 'The file opened, but extraction stopped partway through. This usually means an unusual internal structure.',
               remedy: 'Try another PDF, or re-export this one from its original source.',
+              diagnostics,
             },
           }));
         }

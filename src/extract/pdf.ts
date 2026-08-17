@@ -7,6 +7,11 @@ import * as pdfjs from 'pdfjs-dist';
 // including the sample. Building the worker from a Blob already present in
 // the bundle removes that request as a failure point entirely.
 import workerSource from 'pdfjs-dist/build/pdf.worker.min.mjs?raw';
+// The same shims polyfills.ts installs on the main thread, as raw source, so
+// they can be installed inside the worker realm too — the worker is where
+// pdf.js actually parses, and it inherits nothing the main thread patched.
+import realmShims from '@/core/realmShims.js?raw';
+import { collectDiagnostics, describeFile, type Diagnostics } from '@/core/diagnostics';
 import type {
   Author,
   Degradation,
@@ -30,9 +35,21 @@ import { extractStatistics } from './stats';
 import { comprehend } from './comprehend';
 import { extractReferences } from './refs';
 
+/**
+ * The pdf.js worker, built from source already in the bundle.
+ *
+ * The shims are prepended, not merely imported on the main thread, because a
+ * Web Worker is a separate realm: Map.prototype inside the worker is not the
+ * Map.prototype polyfills.ts patched. pdf.js parses inside the worker, so
+ * without this the reader runs unpatched on exactly the browsers the shims
+ * exist for — and every PDF fails at once, which reads to a user as "damaged".
+ */
 pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
-  new Blob([workerSource], { type: 'text/javascript' }),
+  new Blob([realmShims, '\n', workerSource], { type: 'text/javascript' }),
 );
+
+/** How the document was actually opened, recorded for diagnostics. */
+let openRoute = 'not attempted';
 
 export const LIMITS = {
   maxBytes: 100 * 1024 * 1024,
@@ -66,6 +83,9 @@ export type Artifact =
   | { type: 'statistic'; count: number };
 
 export class PdfIntakeError extends Error {
+  /** Filled in for failures that are about the environment, not the file. */
+  diagnostics?: Diagnostics;
+
   constructor(
     message: string,
     readonly detail: string,
@@ -163,36 +183,18 @@ export async function extractPaper(
     );
   }
 
+  // Captured while the buffer is certainly intact: pdf.js may transfer it.
+  const fileSummary = describeFile(
+    file instanceof ArrayBuffer ? '(in-memory buffer)' : file.name,
+    data,
+  );
+
   let doc: pdfjs.PDFDocumentProxy;
-  const loadingTask = pdfjs.getDocument({ data, useSystemFonts: true });
+  let loadingTask: pdfjs.PDFDocumentLoadingTask;
   try {
-    doc = await loadingTask.promise;
+    ({ doc, loadingTask } = await openDocument(data));
   } catch (err) {
-    console.error('PDF intake failed', err);
-    const msg = String((err as Error)?.message ?? err);
-    if (/password/i.test(msg)) {
-      throw new PdfIntakeError(
-        'This PDF is password-protected',
-        'We need the password to read it. It is used once and never stored.',
-        'Remove the password, or open it in a reader and re-export.',
-      );
-    }
-    // Anything mentioning the worker is not about this file's bytes at all —
-    // a background script this page needs failed to start, most often because
-    // something in the browser or network blocked it. Telling the user their
-    // PDF is damaged here would be both wrong and unfixable by them.
-    if (/worker/i.test(msg)) {
-      throw new PdfIntakeError(
-        "Paper Animator couldn't start its PDF reader",
-        "A background script this page needs failed to load. This isn't a problem with your file — the same thing would happen with any PDF right now.",
-        'Try disabling ad blockers or privacy extensions for this site, switch off a VPN, or try a different network, then reload the page.',
-      );
-    }
-    throw new PdfIntakeError(
-      'This PDF appears to be damaged',
-      'The file structure could not be read. It may have been truncated during a download.',
-      'Try downloading it again from the source.',
-    );
+    throw await explainOpenFailure(err, fileSummary);
   }
 
   if (doc.numPages > LIMITS.maxPages) {
@@ -412,6 +414,135 @@ export async function extractPaper(
   const session = new PaperSession(doc, paper, loadingTask);
   for (const p of pages) if (p.raster) session.prime(p.number, p.raster);
   return session;
+}
+
+/* ============================================================================
+   Opening the document
+   ========================================================================== */
+
+function errorName(err: unknown): string {
+  return (err as Error)?.name ?? '';
+}
+
+/** A real "this file is broken" verdict from pdf.js, not a guess. */
+function isDamagedPdf(err: unknown): boolean {
+  return errorName(err) === 'InvalidPDFException';
+}
+
+function isPasswordProtected(err: unknown): boolean {
+  return (
+    errorName(err) === 'PasswordException' ||
+    /password/i.test(String((err as Error)?.message ?? ''))
+  );
+}
+
+/**
+ * Runs pdf.js entirely on the main thread.
+ *
+ * pdf.js caches its own fallback loader in a property that stays rejected once
+ * it has failed, so a plain retry after a worker failure would fail the same
+ * way forever. Publishing the message handler on globalThis and replacing that
+ * cached promise gives the retry a genuinely different route to run on.
+ */
+async function useMainThreadReader(): Promise<void> {
+  const mod = (await import(/* @vite-ignore */ pdfjs.GlobalWorkerOptions.workerSrc)) as {
+    WorkerMessageHandler: unknown;
+  };
+  (globalThis as Record<string, unknown>).pdfjsWorker = mod;
+  const PDFWorker = (pdfjs as unknown as { PDFWorker?: object }).PDFWorker;
+  if (PDFWorker) {
+    Object.defineProperty(PDFWorker, '_setupFakeWorkerGlobal', {
+      value: Promise.resolve(mod.WorkerMessageHandler),
+      configurable: true,
+      writable: false,
+      enumerable: true,
+    });
+  }
+}
+
+/**
+ * Opens the document, falling back from the worker to the main thread.
+ *
+ * Reading a PDF should not depend on a Web Worker being available. Workers can
+ * be blocked by a page policy, unavailable in an embedded webview, or broken by
+ * an extension — none of which say anything about the file. When that happens
+ * we pay the cost of parsing on the main thread rather than telling somebody
+ * their paper is damaged.
+ */
+async function openDocument(
+  bytes: ArrayBuffer,
+): Promise<{ doc: pdfjs.PDFDocumentProxy; loadingTask: pdfjs.PDFDocumentLoadingTask }> {
+  // Each attempt gets its own copy — pdf.js may transfer the buffer it is given,
+  // which would leave a retry with a detached, zero-length ArrayBuffer.
+  const attempt = () => pdfjs.getDocument({ data: bytes.slice(0), useSystemFonts: true });
+
+  const viaWorker = attempt();
+  try {
+    const doc = await viaWorker.promise;
+    openRoute = 'web worker';
+    return { doc, loadingTask: viaWorker };
+  } catch (err) {
+    // These verdicts are about the file itself, so a different execution route
+    // cannot change them. Retrying would only make the failure slower.
+    if (isDamagedPdf(err) || isPasswordProtected(err)) {
+      openRoute = 'web worker';
+      throw err;
+    }
+    console.warn('PDF worker route failed, retrying on the main thread', err);
+    void viaWorker.destroy().catch(() => {});
+
+    try {
+      await useMainThreadReader();
+      const viaMain = attempt();
+      const doc = await viaMain.promise;
+      openRoute = 'main thread (worker route failed)';
+      return { doc, loadingTask: viaMain };
+    } catch (retryErr) {
+      openRoute = 'failed on both the worker and the main thread';
+      // The retry almost always repeats the original breakage, so the first
+      // error is the one worth reporting; the second is kept for the console.
+      console.error('Main-thread retry also failed', retryErr);
+      throw err;
+    }
+  }
+}
+
+/** Turns an open failure into something true, specific, and reportable. */
+async function explainOpenFailure(err: unknown, fileSummary: string): Promise<PdfIntakeError> {
+  console.error('PDF intake failed', err);
+
+  if (isPasswordProtected(err)) {
+    return new PdfIntakeError(
+      'This PDF is password-protected',
+      'We need the password to read it. It is used once and never stored.',
+      'Remove the password, or open it in a reader and re-export.',
+    );
+  }
+
+  const damaged = isDamagedPdf(err);
+  const failure = damaged
+    ? new PdfIntakeError(
+        'This PDF appears to be damaged',
+        'pdf.js could not parse the file structure. It may have been truncated during a download.',
+        'Try downloading it again from the source, or re-export it from the original.',
+      )
+    : new PdfIntakeError(
+        "Paper Animator couldn't start its PDF reader",
+        "This is not a problem with your file — the reader itself failed to run, so any PDF would fail the same way right now. The details below say exactly what this browser could not do.",
+        'Try disabling ad blockers or privacy extensions for this site, or open it in another browser. If it keeps failing, copy the details below into a bug report.',
+      );
+
+  // Attached to both: when a file really is damaged the report still says which
+  // pdf.js error decided that, which is the difference between a claim and
+  // something the user can check.
+  failure.diagnostics = await collectDiagnostics({
+    phase: 'opening the document',
+    route: openRoute,
+    file: fileSummary,
+    error: err,
+    pdfjsVersion: pdfjs.version ?? 'unknown',
+  });
+  return failure;
 }
 
 /* ============================================================================

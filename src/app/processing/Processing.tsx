@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import type { Artifact, ProgressStage } from '@/extract/pdf';
 import type { Figure, PaperMeta, Section } from '@/core/types';
+import { formatDiagnostics, type Diagnostics } from '@/core/diagnostics';
 import { Button } from '@/ui/Button';
 import { Mark } from '../landing/Landing';
 
@@ -14,7 +15,12 @@ import { Mark } from '../landing/Landing';
 export interface ProcessingState {
   stage: ProgressStage | null;
   artifacts: Artifact[];
-  error: { title: string; detail: string; remedy?: string } | null;
+  error: {
+    title: string;
+    detail: string;
+    remedy?: string;
+    diagnostics?: Diagnostics;
+  } | null;
   fileName: string;
 }
 
@@ -311,7 +317,7 @@ function ExtractionError({
   onCancel,
   fileName,
 }: {
-  error: { title: string; detail: string; remedy?: string };
+  error: { title: string; detail: string; remedy?: string; diagnostics?: Diagnostics };
   onCancel: () => void;
   fileName: string;
 }) {
@@ -332,13 +338,63 @@ function ExtractionError({
           <span className="numeral">{fileName}</span> is still on your machine. Nothing was sent
           anywhere.
         </p>
-        <div className="mt-8">
+        <div className="mt-8 flex flex-wrap items-center gap-3">
           <Button variant="primary" size="lg" onClick={onCancel}>
             Try another paper
           </Button>
         </div>
+
+        {error.diagnostics && <DiagnosticsPanel diagnostics={error.diagnostics} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * The technical report.
+ *
+ * A failure nobody can describe is a failure nobody can fix. This is collapsed
+ * by default so it never competes with the plain-language explanation above it,
+ * and it copies as one block so a user can paste it straight into a bug report.
+ */
+function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostics }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    const text = formatDiagnostics(diagnostics);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard access can be denied; selecting the text still works.
+      return;
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <details className="mt-10 rounded-[var(--radius-md)] border border-[var(--rule-hairline)] bg-[var(--surface-raised)]">
+      <summary className="label cursor-pointer px-4 py-3 text-[var(--ink-secondary)]">
+        Technical details
+      </summary>
+      <div className="border-t border-[var(--rule-hairline)] px-4 py-4">
+        <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-[max-content_minmax(0,1fr)]">
+          {diagnostics.entries.map(([key, value]) => (
+            <div key={key} className="contents">
+              <dt className="label pt-0.5 whitespace-nowrap">{key}</dt>
+              <dd className="numeral text-[0.7rem] leading-[1.55] break-words text-[var(--ink-secondary)]">
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-4">
+          <Button variant="quiet" size="sm" onClick={copy}>
+            {copied ? 'Copied' : 'Copy report'}
+          </Button>
+        </div>
+      </div>
+    </details>
   );
 }
 
