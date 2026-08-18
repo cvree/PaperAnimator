@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '@/state/store';
 import { layerRef } from '@/core/types';
-import { findSourceElement } from './SourcePane';
+import { anchorRect } from '@/reader/selection';
 
 /**
  * The thread. When a claim on the canvas is selected, a line is drawn from it to
@@ -47,15 +47,12 @@ export function SourceThread() {
 
     const measure = () => {
       const from = document.querySelector<HTMLElement>(`[data-layer-id="${layer.id}"]`);
-      const to =
-        findSourceElement(ref) ??
-        document.querySelector<HTMLElement>(`[data-page="${ref.page}"]`);
+      const b = anchorRect(ref);
 
-      if (!from || !to) {
+      if (!from || !b) {
         setLine(null);
       } else {
         const a = from.getBoundingClientRect();
-        const b = to.getBoundingClientRect();
         // Only draw when the source end is actually on screen.
         if (b.bottom < 0 || b.top > window.innerHeight) {
           setLine(null);

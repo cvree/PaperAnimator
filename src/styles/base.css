@@ -489,3 +489,91 @@ input[type='range']::-moz-range-thumb {
     animation: none;
   }
 }
+
+/* ==========================================================================
+   The reader — real pages you can mark up
+   ========================================================================== */
+
+.pa-textlayer {
+  /* Stray whitespace between runs must take no space of its own; each run
+     carries its own font-size in container units. */
+  font-size: 0;
+  line-height: 0;
+  font-family: 'Newsreader Variable', Newsreader, Georgia, 'Times New Roman', serif;
+  color: transparent;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+  z-index: 2;
+}
+
+.pa-textlayer > span[data-run] {
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0 0;
+  line-height: 1;
+  color: transparent;
+  /* Selection must land on the glyphs, so a run may not wrap or be clipped. */
+  pointer-events: auto;
+}
+
+.pa-textlayer ::selection {
+  background: color-mix(in oklch, var(--hl-yellow) 82%, transparent);
+  color: transparent;
+}
+
+.pa-textlayer ::-moz-selection {
+  background: color-mix(in oklch, var(--hl-yellow) 82%, transparent);
+  color: transparent;
+}
+
+/* While a tool is being carried, the page stops being selectable so the drag
+   reads as a drop, not as a smear of text. */
+.pa-reader[data-carrying='true'] .pa-textlayer {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: copy;
+}
+
+.pa-reader[data-cropping='true'] .pa-textlayer {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: crosshair;
+}
+
+@keyframes mark-in {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  40% {
+    opacity: 0.95;
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 0;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes chip-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ghost-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

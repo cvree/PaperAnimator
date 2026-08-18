@@ -12,89 +12,119 @@ highlighting and dragging.
 
 ## 1. Layout
 
+The paper is not a reference panel beside the work. The paper *is* the work: it takes the
+larger half of the window, and everything to its right is what the paper has produced so
+far.
+
 ```
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│ ◀ Paper Animator   Photosynthesis in Low Light      ✓ Saved   ↶ ↷   ⚡︎92   ▶ Export │  56px
-├──────────────┬──────────────────────────────────────────┬──────────────────────┤
-│              │                                          │                      │
-│  SOURCE      │              CANVAS                      │   INSPECTOR          │
-│              │                                          │                      │
-│  ⌕ search    │   ┌──────────────────────────────────┐   │  ▣ Content           │
-│              │   │                                  │   │  ⌖ Source            │
-│  ▸ Abstract  │   │        16:9 · safe areas         │   │  ⬒ Layout            │
-│  ▾ Methods   │   │                                  │   │  ↗ Motion            │
-│    ¶ ¶ ¶     │   │                                  │   │  ♪ Voice             │
-│  ▸ Results   │   └──────────────────────────────────┘   │  ⊞ Captions          │
-│  ▸ Figures   │                                          │  ♿ Accessibility     │
-│              │    ◀◀  ▶  ▶▶   00:04.2 / 03:12   ⤢ 100% │                      │
-├──────────────┼──────────────────────────────────────────┴──────────────────────┤
-│  SCENES      │  TIMELINE                                                       │
-│  ▦ 1 Title   │  scenes    ▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓▓▓│▓▓▓▓                            │
-│  ▦ 2 Question│  narration ─wave────wave───────wave──                            │
-│  ▦ 3 Method ⚠│  music     ────────────────────────────                          │
-│  ▦ 4 Finding │  captions  ▭▭▭ ▭▭▭▭ ▭▭  ▭▭▭▭▭ ▭▭▭                               │
-│  + Add scene │  beats     ╷      ╷        ╷                                     │
-└──────────────┴─────────────────────────────────────────────────────────────────┘
+│ ◀ Paper Animator   Sleep Duration and Recovery    ↶ ↷   Broadsheet  ⚡︎92  Export │  56px
+├──────────────────────────────────────────────┬─────────────────────────────────┤
+│ Contents ▾   ⌕ search the paper      − 92% + │                                 │
+│                                              │            STAGE                │
+│   ┌──────────────────────────────────────┐   │   ┌─────────────────────────┐   │
+│ 7 │                                      │   │   │     16:9 · captions     │   │
+│ ▔ │   the real page, rendered, with      │   │   └─────────────────────────┘   │
+│   │   selectable text over it            │   │   ▶  00:09.2 / 01:36  scene 2/11│
+│   │                                      │   ├─────────────────────────────────┤
+│   │   ┌──────────────────────────────┐   │   │  STORYBOARD  │  INSPECTOR       │
+│   │   │ ⠿ Spotlight H  ≡ ❝ ⋮≡ T ⊞ │2│ │   │   │  ┌───────────────────────────┐ │
+│   │   └──────────────────────────────┘   │   │   │  │ 01  Title         8.2s  │ │
+│   │                                      │   │   │  ├───────────────────────────┤ │
+│   └──────────────────────────────────────┘   │   │  │ 02  31.4%         6.4s  │ │
+│                                              │   │  └───────────────────────────┘ │
+│  ┌────────────────────────────────────────┐  │   │                             │
+│  │ ≡ Statement  ⑫ Big number  ❝ Pull quote│  │   │                             │
+│  │ ⊞ Add to scene  ✎ Spotlight  ♪ Voice   │  │   │                             │
+│  └────────────────────────────────────────┘  │   │                             │
+├──────────────────────────────────────────────┴─────────────────────────────────┤
+│ TIMELINE  (Pro only)   scenes ▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓▓▓  narration ─wave──wave──     │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| Region | Default | Resizable | Collapsible |
-|---|---|---|---|
-| Top bar | 56px | no | no |
-| Source pane | 320px | 240–520 | `⌘1` |
-| Scene rail | 320px (below source) | shares source width | `⌘2` |
-| Canvas | fill | — | — |
-| Inspector | 320px | 260–480 | `⌘3` |
-| Timeline | 200px | 120–480 | `⌘4` |
+| Region | Width | Present at |
+|---|---|---|
+| Reader | fills the rest | every level |
+| Tool dock | floats over the reader's lower edge | every level |
+| Stage | 46% of the right column's height | every level |
+| Storyboard / Inspector | `clamp(23rem, 30vw, 33rem)` | Storyboard always; Inspector from Studio |
+| Timeline | `clamp(8rem, 15vh, 11rem)` | Pro |
 
-Panel sizes persist per user. Double-clicking a divider resets to default.
-
-**Level gating:** Simple shows source + canvas + scene rail + transport. Studio adds the
-inspector and timeline. Pro adds keyframe rows, motion curve editing, safe-area controls,
-and the beats track.
+`⌘.` cycles Simple → Studio → Pro. Simple alone produces a complete, exportable project:
+nothing in Studio or Pro is required to finish a talk, only to fine-tune one.
 
 ---
 
-## 2. Source pane — where the product's idea lives
+## 2. The reader — where the product's idea lives
 
-A virtualized, scrollable rendering of the actual paper (page rasters with a selectable
-text layer positioned from the extracted quads). Not a re-typeset approximation — the
-real pages, because trust comes from recognizing your own paper.
+Every page is drawn as it was printed — the real raster — with a transparent layer of
+absolutely positioned text runs on top of it. The browser's own selection therefore works:
+drag across the page and the words highlight, exactly as in a PDF reader. There is no
+re-typeset "outline" mode any more, because a re-typeset paper is not the paper.
 
-**Two view modes:**
+Three details make it feel like reading rather than like using a tool:
 
-| Mode | Shows | Default for |
-|---|---|---|
-| **Outline** | Section tree with paragraph previews, figures, tables, statistics | First-time users |
-| **Pages** | Actual page rasters with a live text layer | Verification, precise selection |
+- **Runs are emitted in reading order**, from the assembled lines, not in the order the
+  PDF stored them. Dragging down a two-column page selects the left column and then the
+  right one, rather than zig-zagging across the gutter.
+- **Each run is scaled horizontally onto its printed counterpart.** The factor is measured
+  once, because font size is expressed in container-query units, so both the natural width
+  and the target width scale with the page and their ratio does not. Highlights land on
+  the ink.
+- **Only pages near the viewport exist in the DOM.** A 400-page paper costs three pages of
+  text runs, not four hundred.
 
-Toggle with `⌘\`. Both modes support selection and drag.
+### What a mark is
 
-### Selection → action
+A **passage** is whatever was marked, resolved against the paper: its quads per page, its
+tidied text, the sentences it covers, any statistics inside it, the section it belongs to,
+and the figure or table it overlaps. The passage *is* the provenance — there is no later
+step where a source gets attached, and therefore no later step that can be skipped.
 
-Selecting text raises `SelectionBar` with contextual actions:
-
-| Selection | Actions offered |
+| Gesture | Marks |
 |---|---|
-| A sentence | **Make a scene** · Add to current · Quote · Explain |
-| A statistic | **Make a stat scene** · Add stat · Explain |
-| A figure | **Make a figure scene** · Add to current · Zoom to panel |
-| A table | **Make a table scene** · Add column · Add row |
-| Multiple paragraphs | **Make a section** (produces several scenes) |
-| An equation | **Make an equation scene** · Explain in words |
+| Drag across text | Exactly those words, to the character |
+| Click a line | The whole sentence it belongs to, or the printed line when it is a title, a heading or a caption |
+| `⌥↑` / `⌥↓` | Widens to sentence → paragraph → section, or narrows back |
+| `⌥`-drag, or the Figure tool | A rectangular region, cropped from the page at full resolution |
 
-Every one of these attaches provenance automatically, because the selection *is* the
-source span. This is the reason the product can promise accuracy without asking the user
-to do bookkeeping.
+### The instruments
 
-**Keyboard equivalent:** `Tab` moves through atoms in reading order; `Space` selects;
-`Shift+↓` extends; `Enter` opens the same action bar as a menu. No pointer required.
+The dock carries every tool at once, grouped by what it does to the project. A tool can be
+**clicked** to apply it to the current mark, **dragged onto the page** to apply it to
+whatever is under the pointer, or reached by its **letter key**.
 
-### Highlights in the source
+| Group | Tool | Key | Makes |
+|---|---|---|---|
+| Make a scene | Statement | `S` | The passage, set as large as it fits, read aloud as it appears |
+| | Big number | `N` | The statistic at full size, with the sentence that qualifies it |
+| | Pull quote | `Q` | A quotation attributed to its page |
+| | Build a list | `B` | One line per sentence, each arriving as it is spoken, each with its own citation |
+| | Beat by beat | `X` | One scene per sentence — a paragraph becomes a sequence in one gesture |
+| | Figure | `F` | A crop of the page, with its caption |
+| | Title card | `T` | An opening card with the paper's own byline |
+| Add to this scene | Add to scene | `A` | Appends the passage as another line, spoken after what is there |
+| | Spotlight | `H` | Marks those exact words inside the sentence around them |
+| | Voice-over | `V` | Spoken over the current scene without appearing on it |
+| Combine | Side by side | `C` | This passage against the one you kept (`⇧K`), in two columns |
 
-- Spans already used by a scene are underlined in that scene's rail colour.
-- Hovering a span shows *"Used in Scene 4"*; clicking jumps there.
-- The current scene's spans are drawn in `--accent-subtle`.
-- Unresolved integrity issues show an amber margin marker at the line.
+The leading button on the marker bar is whatever the passage most wants to be: a number
+becomes a number, a figure becomes a figure, a phrase inside a sentence becomes a
+spotlight. One click for the obvious thing; a drag for the deliberate one.
+
+### The preview cannot lie
+
+Each instrument's `plan()` is pure: it returns the scenes it *would* insert without
+touching the project. The same call drives the drag ghost, the keyboard shortcut and the
+drop — so the scene shown floating under the cursor is literally the scene that lands.
+
+### Marks in the reader
+
+- Passages a scene already uses carry a mint wash and a green underline, with a numbered
+  chip in the margin. Clicking the chip jumps to that scene.
+- A mark that is already in a scene shows that scene's number on its marker bar.
+- Hovering a scene card in the storyboard lights its passages on the page.
+- Selecting a claim on the stage draws a thread from it to the exact quads it came from.
 
 ---
 
@@ -173,32 +203,30 @@ accessibility stops being a checklist and becomes a design tool.
 
 ## 7. Drag matrix
 
-Every drag has a keyboard path and a live-region announcement. dnd-kit's keyboard sensor
-is enabled on every sortable and droppable.
+Every drag has a keyboard path. The tool drags are pointer-event based rather than
+HTML5 drag-and-drop, so they work under touch and can show a live preview; the storyboard
+reorder uses dnd-kit with its keyboard sensor and a live region.
 
 | # | From | To | Result | Keyboard equivalent |
 |---|---|---|---|---|
-| 1 | Source atom | Canvas | New layer, provenance attached | Select atom → `Enter` → *Add to current scene* |
-| 2 | Source atom | Scene rail | New scene built around it | Select atom → `Enter` → *Make a scene* |
-| 3 | Source figure | Canvas | Figure layer with caption + alt text | Same menu |
-| 4 | Source table | Canvas | Table layer (grid or image) | Same menu |
-| 5 | Scene card | Scene rail | Reorder | `Space` lift, `↑↓`, `Space` drop |
-| 6 | Scene block | Timeline | Reorder / retime | Select, `⌥←→` to move, `⇧←→` to trim |
-| 7 | Clip edge | — | Trim | `⇧←→` on selected clip |
-| 8 | Layer | Canvas | Move | Arrows / `⇧`+arrows |
-| 9 | Layer handle | — | Resize / rotate | Inspector numeric fields |
-| 10 | Layer | Layer list | Reorder z | `⌘[` / `⌘]` |
-| 11 | Music clip | Music track | Position | `⌥←→` |
-| 12 | Keyframe *(Pro)* | Motion row | Retime | `←→` when keyframe focused |
-| 13 | Panel divider | — | Resize | `⌃⌥←→` when divider focused |
-| 14 | External file | Canvas | Import image/audio | Toolbar → Import |
+| 1 | Tool chip | A sentence on the page | That tool applied to that sentence | Mark it, press the tool's letter |
+| 2 | Tool chip | The current highlight | That tool applied to the highlight | Same |
+| 3 | Figure tool | A figure or a paragraph | Crops that region and builds a figure scene | `F`, then drag a box |
+| 4 | The highlight (by its grip) | A tool chip | That tool applied | The tool's letter |
+| 5 | The highlight | A scene card | The passage appended to that scene | Select the scene, press `A` |
+| 6 | The highlight | Between two scene cards | A new scene inserted at that position | `S`, then reorder |
+| 7 | Scene card | Storyboard | Reorder | `Space` lift, `↑↓`, `Space` drop |
+| 8 | Scene block | Timeline | Reorder / retime | Select, `⌥←→` move, `⇧←→` trim |
+| 9 | Layer | Canvas | Move | Arrows / `⇧`+arrows |
+| 10 | Layer handle | — | Resize / rotate | Inspector numeric fields |
+
+Nothing re-renders per frame during a drag: the ghost is moved by writing a transform to
+one element, and React is told only when the *target* changes — when the pointer crosses
+into a different sentence, a few times a second at most.
 
 **Announcements** follow one grammar so they are learnable:
 `"{item} lifted"` → `"{item} moved to position {n} of {total}"` → `"{item} dropped at
 position {n}"` or `"movement cancelled"`.
-
-**Touch:** long-press 200ms to lift (with haptics), auto-scroll near edges, a larger
-30px snap radius, and a persistent menu alternative for every drag.
 
 ---
 
@@ -227,8 +255,10 @@ position {n}"` or `"movement cancelled"`.
 `⌘D` duplicate · `⌘G` group · `⌘⇧K` split at playhead · `⌫` delete ·
 `⌘L` lock · `⌘⇧H` hide · `⌘[` `⌘]` z-order · `⌥⌘←→` align
 
-**Source** — `Tab` next atom · `⇧Tab` previous · `Space` select · `Enter` action menu ·
-`⌘⏎` make a scene from selection
+**Reader** — click a line to take its sentence · `⌥↑`/`⌥↓` widen/narrow the mark ·
+`⇧K` keep the passage for a comparison · `Esc` clear the mark ·
+`S N Q B X F T` make a scene · `A H V` add to the current scene · `C` side by side ·
+`⌘`-scroll to zoom
 
 Fully remappable; the map is stored per user and exported with preferences.
 
@@ -239,17 +269,17 @@ Fully remappable; the map is stored per user and exported with preferences.
 **Guided first project** — four coach marks, dismissible, never modal, each anchored to a
 real element and each requiring an actual action to advance:
 
-1. *"Select any sentence here."* → the SelectionBar appears
-2. *"Turn it into a scene."* → a scene appears in the rail with provenance attached
-3. *"Click the chip to see where it came from."* → the source pane flashes the quad
+1. *"Highlight something in the paper."* → the marker bar arrives on the mark
+2. *"Drop a tool on your highlight."* → a scene appears in the storyboard, cited
+3. *"Click something on the scene."* → a thread is drawn back to the words on the page
 4. *"Press Space to watch it."* → playback
 
 Total time: under 60 seconds. After that, the user has performed all three signature
 interactions and can be left alone.
 
 **Everywhere else:** empty states carry the next action, not just an illustration. The
-scene rail with no scenes says *"Highlight a sentence in the paper to make your first
-scene"* with a button that scrolls the source pane to the abstract.
+storyboard with no scenes says *"Highlight a sentence in the paper to make your first
+scene"*.
 
 ---
 
@@ -292,7 +322,7 @@ to both the scene and the page.
 
 | Tab | Does |
 |---|---|
-| **Paper** | Read, select, make scenes from selections |
+| **Paper** | The real pages, opened zoomed far enough to read a column; tap a line to mark its sentence, then use the dock |
 | **Scenes** | Reorder, retitle, edit text, adjust duration |
 | **Preview** | Full-bleed playback with captions |
 | **Review** | The integrity list, optimized for triage |
@@ -303,5 +333,5 @@ server-side with a notification when complete.
 Honestly absent on mobile, and labelled as such: keyframing, multitrack mixing, precise
 layer positioning. A "Continue on desktop" link is offered where relevant.
 
-**Tablet** adds a two-pane layout (source + canvas), pen support for highlighting, and a
-compact timeline for reordering and trimming.
+**Tablet** keeps the two-pane layout — reader plus a narrower stage-and-storyboard column —
+with the dock in its icon-only form.

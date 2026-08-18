@@ -258,7 +258,10 @@ function TextContent({
           layer.align === 'center' ? 'center' : layer.align === 'end' ? 'flex-end' : 'flex-start',
         textAlign: layer.align === 'center' ? 'center' : layer.align === 'end' ? 'right' : 'left',
         height: '100%',
-        overflow: 'hidden',
+        // Text is measured before it is set, but a line can still wrap one word
+        // differently at preview size than at export size. Letting the block
+        // spill by that one line is far better than slicing a sentence in half.
+        overflow: 'visible',
       }}
     >
       <p style={{ margin: 0, textWrap: 'pretty' as never }}>

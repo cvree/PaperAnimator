@@ -389,16 +389,31 @@ function findActiveCue(scene: Scene, sceneTMs: number): NarrationCue | null {
   return null;
 }
 
+/**
+ * A caption is a reading window, not a transcript.
+ *
+ * A cue can be a whole marked paragraph; showing all of it at once would cover
+ * the scene it is describing. What is shown is the words around the one being
+ * said — enough to read ahead, enough to have just read.
+ */
+const CAPTION_BEHIND = 14;
+const CAPTION_AHEAD = 10;
+
 function resolveCaption(cue: NarrationCue, sceneTMs: number): ResolvedCaption {
   const local = sceneTMs - cue.startMs;
   const spoken = spokenWords(cue, local);
   const activeIndex = Math.floor(spoken);
+
+  const from = Math.max(0, activeIndex - CAPTION_BEHIND);
+  const to = Math.min(cue.words.length, activeIndex + CAPTION_AHEAD + 1);
+  const window = cue.words.slice(from, to);
+
   return {
-    text: cue.text,
-    words: cue.words.map((w, i) => ({
+    text: window.map((w) => w.text).join(' '),
+    words: window.map((w, i) => ({
       text: w.text,
-      spoken: i < activeIndex,
-      active: i === activeIndex,
+      spoken: from + i < activeIndex,
+      active: from + i === activeIndex,
     })),
   };
 }

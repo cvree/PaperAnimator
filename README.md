@@ -10,16 +10,39 @@ uploaded, nothing is stored, and nothing is used for training.
 
 ## The idea
 
-You make the presentation by touching the paper.
+**Read the paper. Mark it up. That is the presentation.**
 
-- **Highlight** a sentence → it becomes a scene, with its source attached automatically.
-- **Drag** a figure onto the canvas → it becomes a layer, provenance included.
-- **Click** any claim → the source pane scrolls to the exact page, flashes the sentence,
-  and draws a thread between the two.
+The editor opens on the real pages, rendered as printed, with text you can drag across the
+way you would in any PDF reader. Highlight a passage and a bar arrives on it. Then either
+click a tool or pick one up and drop it on the words:
 
-Every factual statement on screen traces back to a page. A project-wide **Source
-Integrity** score tells you how much of your presentation is grounded, and which parts
-need review — before you present it to anyone.
+| Drop this | Get this |
+|---|---|
+| **Statement** | The passage, set as large as it fits, read aloud as it appears |
+| **Big number** | The statistic at full size, with the sentence that qualifies it |
+| **Pull quote** | A quotation, attributed to its page |
+| **Build a list** | One line per sentence, each arriving as it is spoken, each separately cited |
+| **Beat by beat** | One scene per sentence — a paragraph becomes a sequence in one gesture |
+| **Figure** | A crop of the page at full resolution, with its caption |
+| **Spotlight** | Those exact words marked inside the sentence around them |
+| **Side by side** | This passage against one you kept earlier, in two columns |
+
+While you carry a tool, the scene it would make floats under the cursor — drawn by the
+same renderer as the canvas and the export, so the preview cannot promise what the drop
+would not deliver.
+
+**The highlight is the citation.** A passage carries the quads of what you marked, down to
+the character, so there is no later step where a source gets attached and therefore no
+later step that can be skipped or got wrong. Passages already used by a scene are washed
+in mint on the page, with a numbered chip in the margin that jumps to that scene; clicking
+a claim on the canvas draws a thread back to the exact words it came from.
+
+A project-wide **Source Integrity** score tells you how much of your presentation is
+grounded, and which parts need review — before you present it to anyone.
+
+Nothing here needs the pointer. Click a line to take its sentence, `⌥↑` to widen the mark
+to its paragraph, then press a letter: `S` statement, `N` number, `Q` quote, `B` build,
+`X` beats, `F` figure, `H` spotlight, `A` add to this scene, `V` voice-over.
 
 ---
 
@@ -85,7 +108,9 @@ real browser against `npm run preview`.
 | Script | What it checks |
 |---|---|
 | `tools/flow.mjs` | Landing → processing → setup → editor, with console errors surfaced |
-| `tools/editor.mjs` | Selecting a sentence, making a scene, the source thread, each disclosure level, integrity, export |
+| `tools/editor.mjs` | Marking a sentence, making a scene, the source thread, each disclosure level, integrity, export |
+| `tools/reader.mjs` | The text layer, highlighting, the marker bar, dragging a tool onto a sentence, cropping a figure, comparing two passages |
+| `tools/reader-small.mjs` | The reader at tablet and phone widths |
 | `tools/demos.mjs` | The three landing-page interactions |
 | `tools/exports.mjs` | Runs every export for real and reports the bytes and file types |
 | `tools/playback.mjs` | Plays the exported video and samples frames from it |
@@ -111,17 +136,24 @@ The design work this was built from:
 | [`docs/02-extraction-pipeline.md`](docs/02-extraction-pipeline.md) | PDF → structured paper, figures, tables, confidence |
 | [`docs/03-render-engine.md`](docs/03-render-engine.md) | The determinism contract that makes preview equal export |
 | [`docs/04-design-system.md`](docs/04-design-system.md) | Tokens, typography, the four visual styles, motion system |
-| [`docs/05-editor-spec.md`](docs/05-editor-spec.md) | Panels, the three signature interactions, drag matrix, shortcuts |
+| [`docs/05-editor-spec.md`](docs/05-editor-spec.md) | The reader, the instruments, the drag matrix, shortcuts |
 | [`docs/06-export-spec.md`](docs/06-export-spec.md) | Every format, its pipeline, and its verification |
 | [`docs/07-ai-services.md`](docs/07-ai-services.md) | The model-backed design the plan assumed |
 | [`docs/08-quality-gates.md`](docs/08-quality-gates.md) | Accessibility, performance budgets, state catalogue, tests |
 | [`docs/09-roadmap.md`](docs/09-roadmap.md) | Milestones M0–M8 with acceptance criteria |
 
-Where the build departs from the plan, the build is the record. The largest departure:
-the plan routed comprehension through a hosted model, and this implementation does the
-comprehension by selection in the browser instead. That is a stronger accuracy guarantee —
-a component that only ever chooses existing sentences cannot invent one — and it removes
-the account, the key and the network round trip.
+Where the build departs from the plan, the build is the record. Two departures matter:
+
+**Comprehension is selection, not generation.** The plan routed it through a hosted model;
+this implementation ranks the paper's own sentences in the browser. That is a stronger
+accuracy guarantee — a component that only ever chooses existing sentences cannot invent
+one — and it removes the account, the key and the network round trip.
+
+**There is one source view, not two.** The plan offered an outline mode beside a pages
+mode. The outline is gone: a re-typeset paper is not the paper, and having two notions of
+"where you are" made the product feel like a tool rather than like reading. What replaced
+it is a reader with real page rasters, a real selectable text layer, and a dock of
+instruments you drop onto what you marked.
 
 ---
 

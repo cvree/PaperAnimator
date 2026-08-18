@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '@/state/store';
 import { Canvas } from './Canvas';
-import { SourcePane } from './SourcePane';
 import { SceneRail } from './SceneRail';
 import { Inspector } from './Inspector';
 import { Timeline } from './Timeline';
@@ -10,13 +9,20 @@ import { ExportSheet } from './ExportSheet';
 import { EditorTopBar } from './EditorTopBar';
 import { SourceThread } from './SourceThread';
 import { Onboarding } from './Onboarding';
+import { Reader } from '@/reader/Reader';
+import { DragHost } from '@/reader/DragHost';
+import { useReader } from '@/reader/readerStore';
 import { useLayoutSize } from '@/ui/useLayoutSize';
 
 /**
- * Four regions: the paper, the storyboard, the canvas, and the inspector, with a
- * timeline beneath. Disclosure level decides how many are visible — Simple mode
- * alone can produce a complete, exportable project.
+ * The editor is the paper, and everything else is what the paper produced.
+ *
+ * The reader holds the majority of the screen because marking it up is the
+ * whole job: highlight a passage, drop a tool on it, watch the scene appear
+ * beside you. The stage and the storyboard are the result, not the workspace.
  */
+
+type Panel = 'storyboard' | 'inspector';
 
 export function Editor() {
   const view = useApp((s) => s.editorView);
@@ -26,9 +32,8 @@ export function Editor() {
   const redo = useApp((s) => s.redo);
   const playing = useApp((s) => s.playing);
   const size = useLayoutSize();
-  const [mobilePane, setMobilePane] = useState<'paper' | 'scenes' | 'preview' | 'review'>(
-    'preview',
-  );
+  const [panel, setPanel] = useState<Panel>('storyboard');
+  const [mobilePane, setMobilePane] = useState<'paper' | 'scenes' | 'preview' | 'review'>('paper');
 
   /* ---- global keys ----------------------------------------------------- */
   useEffect(() => {
@@ -53,15 +58,20 @@ export function Editor() {
           state.playing ? state.pause() : state.play();
           break;
         case 'ArrowLeft':
+          // ⌥ belongs to the reader, where it walks the paper sentence by sentence.
+          if (e.altKey) return;
           e.preventDefault();
           state.seek(state.timeMs - (e.shiftKey ? 1000 : 1000 / 30));
           break;
         case 'ArrowRight':
+          if (e.altKey) return;
           e.preventDefault();
           state.seek(state.timeMs + (e.shiftKey ? 1000 : 1000 / 30));
           break;
         case 'ArrowUp':
         case 'ArrowDown': {
+          // ⌥ belongs to the reader, where it widens and narrows the mark.
+          if (e.altKey) return;
           e.preventDefault();
           const scenes = state.project?.scenes.filter((s) => !s.hidden) ?? [];
           const i = scenes.findIndex((s) => s.id === state.selectedSceneId);
@@ -105,10 +115,14 @@ export function Editor() {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
+  /* The reader's marks belong to a paper, not to the app. */
+  useEffect(() => () => useReader.getState().reset(), []);
+
   if (!project) return null;
 
-  const showTimeline = disclosure !== 'simple';
   const showInspector = disclosure !== 'simple';
+  const showTimeline = disclosure === 'pro';
+  const activePanel: Panel = showInspector ? panel : 'storyboard';
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[var(--surface-page)]">
@@ -122,63 +136,73 @@ export function Editor() {
         className="relative flex min-h-0 flex-1 flex-col"
         style={{ display: view === 'compose' ? undefined : 'none' }}
       >
-        {/* ---------- desktop ---------- */}
-        {size === 'desktop' && (
-          <div className="flex min-h-0 flex-1">
-            <section
-              aria-label="Source paper"
-              className="flex w-[clamp(17rem,21vw,23rem)] shrink-0 flex-col border-r border-[var(--rule-hairline)]"
-            >
-              <div data-coach="paper" className="min-h-0 flex-1">
-                <SourcePane />
-              </div>
-              <div
-                data-coach="rail"
-                className="h-[38%] shrink-0 border-t border-[var(--rule-hairline)]"
-              >
-                <SceneRail />
-              </div>
-            </section>
-
-            <section aria-label="Canvas" className="flex min-w-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1">
-                <Canvas />
-              </div>
-              {showTimeline && (
-                <div className="h-[clamp(8rem,16vh,12rem)] shrink-0 border-t border-[var(--rule-hairline)]">
-                  <Timeline />
-                </div>
-              )}
-            </section>
-
-            {showInspector && (
-              <section
-                aria-label="Inspector"
-                className="w-[clamp(17rem,20vw,21rem)] shrink-0 border-l border-[var(--rule-hairline)]"
-              >
-                <Inspector />
+        {/* ---------- desktop & tablet ---------- */}
+        {size !== 'mobile' && (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1">
+              <section aria-label="The paper" className="min-w-0 flex-1">
+                <Reader compactDock={size === 'tablet'} />
               </section>
-            )}
-          </div>
-        )}
 
-        {/* ---------- tablet ---------- */}
-        {size === 'tablet' && (
-          <div className="flex min-h-0 flex-1">
-            <section
-              aria-label="Source paper"
-              className="w-[18rem] shrink-0 border-r border-[var(--rule-hairline)]"
-            >
-              <SourcePane />
-            </section>
-            <section aria-label="Canvas" className="flex min-w-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1">
-                <Canvas />
+              <section
+                aria-label="Your talk"
+                className="flex shrink-0 flex-col border-l border-[var(--rule-hairline)] bg-[var(--surface-page)]"
+                style={{ width: size === 'tablet' ? '20rem' : 'clamp(23rem, 30vw, 33rem)' }}
+              >
+                <div
+                  className="min-h-[13rem] shrink-0 border-b border-[var(--rule-hairline)]"
+                  style={{ height: size === 'tablet' ? '42%' : '46%' }}
+                >
+                  <Canvas />
+                </div>
+
+                {showInspector && (
+                  <div
+                    role="tablist"
+                    aria-label="Panel"
+                    className="flex shrink-0 border-b border-[var(--rule-hairline)]"
+                  >
+                    {(
+                      [
+                        ['storyboard', 'Storyboard'],
+                        ['inspector', 'Inspector'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        aria-selected={activePanel === key}
+                        onClick={() => setPanel(key)}
+                        className="label flex-1 py-2 transition-colors"
+                        style={{
+                          color:
+                            activePanel === key ? 'var(--ink-primary)' : 'var(--ink-faint)',
+                          boxShadow:
+                            activePanel === key ? 'inset 0 -2px 0 0 var(--accent)' : 'none',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div data-coach="rail" className="min-h-0 flex-1">
+                  {activePanel === 'storyboard' ? (
+                    <SceneRail header={!showInspector} />
+                  ) : (
+                    <Inspector />
+                  )}
+                </div>
+              </section>
+            </div>
+
+            {showTimeline && (
+              <div className="h-[clamp(8rem,15vh,11rem)] shrink-0 border-t border-[var(--rule-hairline)]">
+                <Timeline />
               </div>
-              <div className="h-[9rem] shrink-0 border-t border-[var(--rule-hairline)]">
-                <SceneRail horizontal />
-              </div>
-            </section>
+            )}
           </div>
         )}
 
@@ -186,7 +210,7 @@ export function Editor() {
         {size === 'mobile' && (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
-              {mobilePane === 'paper' && <SourcePane />}
+              {mobilePane === 'paper' && <Reader compactDock />}
               {mobilePane === 'scenes' && <SceneRail />}
               {mobilePane === 'preview' && <Canvas />}
               {mobilePane === 'review' && <IntegrityView embedded />}
@@ -223,6 +247,7 @@ export function Editor() {
         )}
 
         <SourceThread />
+        <DragHost />
         {!playing && <Onboarding />}
       </main>
     </div>

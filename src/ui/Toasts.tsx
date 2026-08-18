@@ -6,7 +6,8 @@ export function Toasts() {
 
   return (
     <div
-      className="pointer-events-none fixed bottom-5 left-1/2 z-[var(--z-toast)] -translate-x-1/2"
+      // Clear of the tool dock, which owns the bottom centre of the reader.
+      className="pointer-events-none fixed bottom-[5.5rem] left-1/2 z-[var(--z-toast)] -translate-x-1/2 sm:bottom-5 sm:left-auto sm:right-5 sm:translate-x-0"
       role="status"
       aria-live="polite"
     >

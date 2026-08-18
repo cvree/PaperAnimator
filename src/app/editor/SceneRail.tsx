@@ -16,10 +16,12 @@ import {
   horizontalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { Fragment } from 'react';
 import { useApp } from '@/state/store';
 import type { Aspect, Scene, StyleId } from '@/core/types';
 import { ScenePreview } from '@/render/ScenePreview';
 import { provenancesOf } from '@/core/integrity';
+import { useReader } from '@/reader/readerStore';
 
 /**
  * The storyboard. Reordering works by pointer and by keyboard alike — the
@@ -27,12 +29,22 @@ import { provenancesOf } from '@/core/integrity';
  * input, announced through a live region.
  */
 
-export function SceneRail({ horizontal = false }: { horizontal?: boolean }) {
+export function SceneRail({
+  horizontal = false,
+  header = true,
+}: {
+  horizontal?: boolean;
+  /** Off when the panel already has a heading of its own. */
+  header?: boolean;
+}) {
   const project = useApp((s) => s.project);
   const mutate = useApp((s) => s.mutate);
   const selectedSceneId = useApp((s) => s.selectedSceneId);
   const seekScene = useApp((s) => s.seekScene);
+  const hoverSource = useApp((s) => s.hoverSource);
   const lit = useApp((s) => s.litSceneIds);
+  const drag = useReader((s) => s.drag);
+  const carrying = !!drag?.passage && drag.live;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -55,12 +67,12 @@ export function SceneRail({ horizontal = false }: { horizontal?: boolean }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--surface-sunken)]">
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--rule-hairline)] px-3 py-2">
-        <span className="label">Storyboard</span>
-        <span className="numeral text-2xs text-[var(--ink-faint)]">
-          {scenes.length}
-        </span>
-      </div>
+      {header && (
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--rule-hairline)] px-3 py-2">
+          <span className="label">Storyboard</span>
+          <span className="numeral text-2xs text-[var(--ink-faint)]">{scenes.length}</span>
+        </div>
+      )}
 
       <DndContext
         sensors={sensors}
@@ -92,24 +104,64 @@ export function SceneRail({ horizontal = false }: { horizontal?: boolean }) {
                 : 'min-h-0 flex-1 space-y-2 overflow-y-auto p-2'
             }
           >
+            {carrying && <GapZone index={0} horizontal={horizontal} active={isGap(drag, 0)} />}
             {scenes.map((scene, i) => (
-              <SceneCard
-                key={scene.id}
-                scene={scene}
-                index={i + 1}
-                styleId={project.style}
-                aspect={project.settings.aspect}
-                selected={scene.id === selectedSceneId}
-                lit={lit.includes(scene.id)}
-                horizontal={horizontal}
-                onSelect={() => seekScene(scene.id)}
-              />
+              <Fragment key={scene.id}>
+                <SceneCard
+                  scene={scene}
+                  index={i + 1}
+                  styleId={project.style}
+                  aspect={project.settings.aspect}
+                  selected={scene.id === selectedSceneId}
+                  lit={lit.includes(scene.id)}
+                  targeted={
+                    !!drag?.live && drag.target.kind === 'scene' && drag.target.id === scene.id
+                  }
+                  horizontal={horizontal}
+                  onSelect={() => seekScene(scene.id)}
+                  onPoint={(on) => hoverSource(on ? (scene.sourceRefs[0] ?? null) : null)}
+                />
+                {carrying && (
+                  <GapZone index={i + 1} horizontal={horizontal} active={isGap(drag, i + 1)} />
+                )}
+              </Fragment>
             ))}
           </div>
         </SortableContext>
       </DndContext>
     </div>
   );
+}
+
+/** Where a carried passage would land if it were dropped between two cards. */
+function GapZone({
+  index,
+  horizontal,
+  active,
+}: {
+  index: number;
+  horizontal: boolean;
+  active: boolean;
+}) {
+  return (
+    <div
+      data-drop={`gap:${index}`}
+      aria-hidden="true"
+      className="shrink-0 rounded-full transition-all duration-150"
+      style={{
+        width: horizontal ? (active ? '1.6rem' : '0.5rem') : '100%',
+        height: horizontal ? 'auto' : active ? '1.6rem' : '0.5rem',
+        alignSelf: 'stretch',
+        background: active ? 'var(--accent)' : 'transparent',
+        outline: active ? 'none' : '1px dashed var(--rule-hairline)',
+        outlineOffset: '-1px',
+      }}
+    />
+  );
+}
+
+function isGap(drag: ReturnType<typeof useReader.getState>['drag'], index: number): boolean {
+  return !!drag && drag.target.kind === 'gap' && drag.target.index === index;
 }
 
 function sceneLabel(scenes: Scene[], id: string | number): string {
@@ -128,8 +180,10 @@ function SceneCard({
   aspect,
   selected,
   lit,
+  targeted,
   horizontal,
   onSelect,
+  onPoint,
 }: {
   scene: Scene;
   index: number;
@@ -137,8 +191,10 @@ function SceneCard({
   aspect: Aspect;
   selected: boolean;
   lit: boolean;
+  targeted: boolean;
   horizontal: boolean;
   onSelect: () => void;
+  onPoint: (on: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: scene.id,
@@ -160,6 +216,9 @@ function SceneCard({
         width: horizontal ? '11rem' : undefined,
       }}
       className="group relative shrink-0"
+      data-drop={`scene:${scene.id}`}
+      onMouseEnter={() => onPoint(true)}
+      onMouseLeave={() => onPoint(false)}
     >
       <button
         type="button"
@@ -170,18 +229,22 @@ function SceneCard({
         <div
           className="overflow-hidden rounded-[var(--radius-sm)] border transition-all duration-200"
           style={{
-            borderColor: selected
+            borderColor: targeted
               ? 'var(--accent)'
-              : lit
-                ? 'var(--ev-extracted)'
-                : 'var(--rule-hairline)',
+              : selected
+                ? 'var(--accent)'
+                : lit
+                  ? 'var(--ev-extracted)'
+                  : 'var(--rule-hairline)',
             boxShadow: isDragging
               ? 'var(--shadow-lift)'
-              : selected
-                ? '0 0 0 1px var(--accent)'
-                : lit
-                  ? '0 0 0 1px var(--ev-extracted)'
-                  : 'none',
+              : targeted
+                ? '0 0 0 2px var(--accent)'
+                : selected
+                  ? '0 0 0 1px var(--accent)'
+                  : lit
+                    ? '0 0 0 1px var(--ev-extracted)'
+                    : 'none',
             transform: isDragging ? 'scale(1.02)' : 'none',
             opacity: scene.hidden ? 0.4 : 1,
           }}

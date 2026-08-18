@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { useApp } from '@/state/store';
+import { useReader } from '@/reader/readerStore';
 
 /**
  * Four steps, each requiring a real action, each anchored to a real element.
@@ -13,25 +14,25 @@ import { useApp } from '@/state/store';
 
 const STEPS = [
   {
-    id: 'select',
+    id: 'mark',
     anchor: 'paper',
     side: 'right',
-    title: 'Click any sentence in the paper',
-    body: 'Everything starts here. What you pick becomes a scene, with its source already attached.',
+    title: 'Highlight something in the paper',
+    body: 'Drag across any words, or click a sentence to take the whole of it. This is the real PDF — what you mark is what gets cited.',
   },
   {
     id: 'make',
-    anchor: 'rail',
-    side: 'right',
-    title: 'Turn it into a scene',
-    body: 'It lands in the storyboard on the left, ready to play.',
+    anchor: 'dock',
+    side: 'above',
+    title: 'Drop a tool on your highlight',
+    body: 'Drag one of these onto the passage — or just click it. You will see the scene before you let go.',
   },
   {
     id: 'prove',
     anchor: 'stage',
     side: 'below',
-    title: 'Click something on the canvas',
-    body: 'A thread is drawn back to the exact sentence it came from.',
+    title: 'Click something on the scene',
+    body: 'A thread is drawn back to the exact words on the page it came from.',
   },
   {
     id: 'play',
@@ -67,15 +68,17 @@ export function Onboarding() {
   });
 
   const sceneCount = project?.scenes.length ?? 0;
+  const marked = useReader((s) => !!s.passage);
   const [baseline] = useState(sceneCount);
   const current = STEPS[step];
 
   /* Advance on real progress, never on a timer. */
   useEffect(() => {
     if (dismissed) return;
+    if (step === 0 && marked) setStep(1);
     if (step === 1 && sceneCount > baseline) setStep(2);
     if (step === 2 && selectedLayerIds.length > 0) setStep(3);
-  }, [step, sceneCount, baseline, selectedLayerIds.length, dismissed]);
+  }, [step, marked, sceneCount, baseline, selectedLayerIds.length, dismissed]);
 
   /* Follow the anchor wherever it is, including across a resize. */
   useLayoutEffect(() => {
@@ -182,15 +185,6 @@ export function Onboarding() {
           <p className="mt-1 text-xs leading-[1.5] text-[var(--ink-tertiary)]">{current.body}</p>
 
           <div className="mt-3 flex items-center gap-3">
-            {step === 0 && (
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="text-2xs font-medium text-[var(--accent)]"
-              >
-                I clicked one →
-              </button>
-            )}
             {step === 3 && (
               <button
                 type="button"
