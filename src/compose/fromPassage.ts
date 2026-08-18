@@ -4,6 +4,8 @@ import {
   type Aspect,
   type Frame,
   type Layer,
+  type MotionPreset,
+  type MotionSpec,
   type NarrationCue,
   type Paper,
   type ProjectSettings,
@@ -17,6 +19,7 @@ import {
   type TextRole,
 } from '@/core/types';
 import { STYLES } from '@/render/styles';
+import { motionDef } from '@/render/motion';
 import { clip, tidy } from '@/reader/pageText';
 import { passageRefs, primaryRef, type Passage } from '@/reader/selection';
 
@@ -124,12 +127,7 @@ export function textLayer(
     rotation: 0,
     locked: false,
     hidden: false,
-    enter: {
-      preset: options.preset ?? 'rise',
-      delayMs: options.delayMs,
-      durationMs: 620,
-      reducedMotion: 'fade',
-    },
+    enter: enterFor(options.preset ?? 'cascade', options.delayMs),
     emphasis: options.sweep
       ? [
           {
@@ -151,8 +149,24 @@ function kicker(text: string, y: number): TextLayer {
     role: 'label',
     frame: { x: M, y, w: COL, h: 0.045 },
     delayMs: 0,
-    preset: 'settle',
+    preset: 'weigh-in',
   });
+}
+
+/**
+ * An entrance at the length its preset was designed for. Picking a preset and
+ * then giving it somebody else's duration is how a cascade ends up looking like
+ * a stutter, so the catalogue's own timing is the default everywhere.
+ */
+function enterFor(preset: MotionPreset, delayMs: number, hold?: MotionSpec['hold']): MotionSpec {
+  const def = motionDef(preset);
+  return {
+    preset,
+    delayMs,
+    durationMs: def.durationMs,
+    reducedMotion: def.reducedMotion,
+    ...(hold ? { hold } : null),
+  };
 }
 
 function rule(y: number, delayMs: number): Layer {
@@ -295,7 +309,7 @@ export function quoteScene(passage: Passage, ctx: BuildContext): Scene {
     rotation: 0,
     locked: false,
     hidden: false,
-    enter: { preset: 'rise', delayMs: 90, durationMs: 720, reducedMotion: 'fade' },
+    enter: enterFor('ink-bleed', 90),
     emphasis: [],
     altText: null,
     decorative: false,
@@ -337,7 +351,7 @@ export function statisticScene(passage: Passage, ctx: BuildContext): Scene | nul
       rotation: 0,
       locked: false,
       hidden: false,
-      enter: { preset: 'rise', delayMs: 80, durationMs: 700, reducedMotion: 'fade' },
+      enter: enterFor('weigh-in', 80),
       emphasis: [],
       altText: `${stat.raw}${stat.qualifiers.length ? `, ${stat.qualifiers.map((q) => q.raw).join(', ')}` : ''}`,
       decorative: false,
@@ -485,7 +499,7 @@ export function figureScene(
           rotation: 0,
           locked: false,
           hidden: false,
-          enter: { preset: 'unfold', delayMs: 120, durationMs: 760, reducedMotion: 'fade' },
+          enter: enterFor('unfold', 120),
           emphasis: [],
           altText: caption || label,
           decorative: false,
@@ -504,7 +518,9 @@ export function figureScene(
           rotation: 0,
           locked: false,
           hidden: false,
-          enter: { preset: 'crop-in', delayMs: 120, durationMs: 780, reducedMotion: 'fade' },
+          // A figure arrives through an opening iris and then keeps moving: a
+          // still picture held dead still for six seconds is where a talk dies.
+          enter: enterFor('iris', 120, 'ken-burns'),
           emphasis: [],
           altText: figure?.altText || caption || label,
           decorative: false,
@@ -550,7 +566,7 @@ export function titleScene(passage: Passage, ctx: BuildContext): Scene {
       role: fit.role,
       frame: { x: M, y: top, w: COL, h: fit.h },
       delayMs: 120,
-      preset: 'settle',
+      preset: 'weigh-in',
     }),
     rule(top + fit.h + 0.05, 420),
   ];

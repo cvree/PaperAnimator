@@ -30,10 +30,9 @@ const report = (label, errors) =>
   console.log('mobile horizontal overflow:', overflow + 'px');
 
   await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
-  await page.waitForSelector('text=Your storyboard', { timeout: 60000 });
+  await page.waitForSelector('.pa-reader', { timeout: 60000 });
   await page.waitForTimeout(1200);
   await page.screenshot({ path: 'shots/51-mobile-setup.png' });
-  await page.getByRole('button', { name: 'Open the editor' }).first().click();
   await page.waitForTimeout(2000);
   const skip = page.getByRole('button', { name: 'Skip' }).first();
   if (await skip.count()) await skip.click();
@@ -72,10 +71,9 @@ const report = (label, errors) =>
   console.log('reduced-motion hero visible immediately:', heroVisible);
 
   await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
-  await page.waitForSelector('text=Your storyboard', { timeout: 60000 });
+  await page.waitForSelector('.pa-reader', { timeout: 60000 });
   await page.waitForTimeout(800);
   await page.screenshot({ path: 'shots/55-reduced-setup.png' });
-  await page.getByRole('button', { name: 'Open the editor' }).first().click();
   await page.waitForTimeout(1500);
   await page.screenshot({ path: 'shots/56-reduced-editor.png' });
   report('reduced motion', errors);
@@ -109,20 +107,18 @@ const report = (label, errors) =>
   }
   if (!reached) console.log('!! keyboard never reached the sample control');
   await page.keyboard.press('Enter');
-  await page.waitForSelector('text=Your storyboard', { timeout: 60000 });
+  await page.waitForSelector('.pa-reader', { timeout: 60000 });
   await page.waitForTimeout(900);
-  await page.screenshot({ path: 'shots/57-keyboard-setup.png' });
+  await page.screenshot({ path: 'shots/57-keyboard-editor-arrival.png' });
+  await page.waitForTimeout(1200);
 
-  // Reach "Open the editor" and go in.
-  for (let i = 0; i < 30; i++) {
-    await page.keyboard.press('Tab');
-    const label = await page.evaluate(() =>
-      (document.activeElement?.textContent || '').trim().slice(0, 40),
-    );
-    if (/Open the editor/i.test(label)) break;
+  // There is nothing to play until something has been made, and the storyboard
+  // now starts empty on purpose.
+  const draftBtn = page.getByRole('button', { name: 'Or draft one from the whole paper' });
+  if (await draftBtn.count()) {
+    await draftBtn.first().click();
+    await page.waitForTimeout(1600);
   }
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(1800);
 
   // Space plays, then pauses.
   await page.keyboard.press('Escape');

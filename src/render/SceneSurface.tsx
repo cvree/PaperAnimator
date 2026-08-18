@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import type { Layer, StyleId } from '@/core/types';
 import type { FrameState, ResolvedHighlight, ResolvedLayer } from './resolveFrame';
+import type { ResolvedMask, RevealUnit } from './motion';
 import { STYLES, type TypeSpec, type VisualStyle } from './styles';
 
 /**
@@ -85,6 +86,26 @@ function isDark(style: VisualStyle): boolean {
   return style.id === 'signal' || style.id === 'chalk';
 }
 
+/**
+ * A resolved mask as a clip-path. The circle radius is given against the box's
+ * half-diagonal, which CSS spells as a percentage of sqrt((w²+h²)/2) — hence
+ * the √2/2. Both renderers therefore uncover the same pixels.
+ */
+export function cssMask(mask: ResolvedMask | null): string | undefined {
+  if (!mask) return undefined;
+  if (mask.kind === 'inset') {
+    return `inset(${pc(mask.top)} ${pc(mask.right)} ${pc(mask.bottom)} ${pc(mask.left)})`;
+  }
+  if (mask.kind === 'circle') {
+    return `circle(${(mask.r * 70.7107).toFixed(3)}% at ${pc(mask.cx)} ${pc(mask.cy)})`;
+  }
+  return `polygon(${mask.points.map(([x, y]) => `${pc(x)} ${pc(y)}`).join(', ')})`;
+}
+
+function pc(v: number): string {
+  return `${(v * 100).toFixed(3)}%`;
+}
+
 /* ============================================================================
    Layer
    ========================================================================== */
@@ -109,6 +130,7 @@ function LayerView({
   showReviewChips: boolean;
 }) {
   const { layer } = rl;
+  const blurPx = rl.blur * height;
   const box: CSSProperties = {
     position: 'absolute',
     left: layer.frame.x * width,
@@ -116,12 +138,10 @@ function LayerView({
     width: layer.frame.w * width,
     height: layer.frame.h * height,
     opacity: rl.opacity,
-    transform: `translate3d(${rl.tx * height}px,0,0) scale(${rl.scale}) rotate(${layer.rotation}deg)`,
+    transform: `translate3d(${rl.tx * height}px,0,0) scale(${rl.scale}) rotate(${layer.rotation + rl.rotate}deg)`,
     transformOrigin: 'center',
-    filter: rl.blur > 0.02 ? `blur(${rl.blur}px)` : undefined,
-    clipPath: rl.clip
-      ? `inset(${rl.clip.top * 100}% ${rl.clip.right * 100}% ${rl.clip.bottom * 100}% ${rl.clip.left * 100}%)`
-      : undefined,
+    filter: blurPx > 0.05 ? `blur(${blurPx.toFixed(2)}px)` : undefined,
+    clipPath: cssMask(rl.mask),
     willChange: 'transform, opacity',
   };
 
@@ -188,9 +208,17 @@ function renderContent(
     case 'stat':
       return <StatContent rl={rl} style={style} height={height} />;
     case 'figure':
-      return <FigureContent layer={layer} style={style} height={height} />;
+      return <FigureContent layer={layer} style={style} height={height} motion={rl.imageMotion} />;
     case 'table':
-      return <TableContent layer={layer} style={style} height={height} width={width} />;
+      return (
+        <TableContent
+          layer={layer}
+          style={style}
+          height={height}
+          width={width}
+          motion={rl.imageMotion}
+        />
+      );
     case 'quote':
       return <QuoteContent layer={layer} style={style} height={height} />;
     case 'rule':
@@ -222,7 +250,7 @@ function renderContent(
 }
 
 /* ============================================================================
-   Text with a marker that follows the voice
+   Text: a marker that follows the voice, over words that arrive one at a time
    ========================================================================== */
 
 function TextContent({
@@ -240,20 +268,36 @@ function TextContent({
     layer.role === 'label' || layer.role === 'caption' ? style.tokens.inkSoft : style.tokens.ink;
 
   const words = useMemo(
-    () => layer.atoms.flatMap((a) => a.text.split(/\s+/).filter(Boolean).map((w) => ({ w, atom: a }))),
+    () =>
+      layer.atoms
+        .map((a) => a.text)
+        .join(' ')
+        .split(/\s+/)
+        .filter(Boolean),
     [layer.atoms],
   );
 
   const sweep = rl.highlights.find((h) => h.treatment === 'sweep');
   const underline = rl.highlights.find((h) => h.treatment === 'underline');
+  const fontPx = spec.size * height;
+
+  // Character reveals index across the same joined string resolveFrame counted,
+  // so the offset of a word is the length of everything before it plus a space.
+  let charCursor = 0;
+  const charStarts = words.map((w) => {
+    const at = charCursor;
+    charCursor += w.length + 1;
+    return at;
+  });
 
   return (
     <div
       style={{
         ...typeStyle(spec, height, color),
+        letterSpacing: trackingWithExtra(spec.tracking, rl.trackingEm),
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: layer.role === 'label' ? 'flex-start' : 'flex-start',
+        justifyContent: 'flex-start',
         alignItems:
           layer.align === 'center' ? 'center' : layer.align === 'end' ? 'flex-end' : 'flex-start',
         textAlign: layer.align === 'center' ? 'center' : layer.align === 'end' ? 'right' : 'left',
@@ -265,16 +309,23 @@ function TextContent({
       }}
     >
       <p style={{ margin: 0, textWrap: 'pretty' as never }}>
-        {words.map((entry, i) => (
+        {words.map((word, i) => (
           <Word
             key={i}
-            text={entry.w}
+            text={word}
             index={i}
+            unit={rl.reveal?.unit === 'word' ? rl.reveal.units[i] : undefined}
+            chars={
+              rl.reveal?.unit === 'char'
+                ? rl.reveal.units.slice(charStarts[i], charStarts[i] + word.length)
+                : undefined
+            }
             sweep={sweep}
             underline={underline}
             style={style}
             spec={spec}
             height={height}
+            fontPx={fontPx}
           />
         ))}
       </p>
@@ -282,22 +333,43 @@ function TextContent({
   );
 }
 
+/** A per-unit transform, in em, as a style. Identical maths in the painter. */
+function unitStyle(unit: RevealUnit | undefined, fontPx: number): CSSProperties {
+  if (!unit) return {};
+  const blurPx = unit.blur * fontPx;
+  return {
+    display: 'inline-block',
+    opacity: unit.opacity,
+    transform:
+      `translate3d(${(unit.tx * fontPx).toFixed(2)}px,${(unit.ty * fontPx).toFixed(2)}px,0)` +
+      ` scale(${unit.scale.toFixed(4)}) rotate(${unit.rotate.toFixed(2)}deg)`,
+    filter: blurPx > 0.05 ? `blur(${blurPx.toFixed(2)}px)` : undefined,
+    willChange: 'transform, opacity',
+  };
+}
+
 function Word({
   text,
   index,
+  unit,
+  chars,
   sweep,
   underline,
   style,
   spec,
   height,
+  fontPx,
 }: {
   text: string;
   index: number;
+  unit?: RevealUnit;
+  chars?: RevealUnit[];
   sweep?: ResolvedHighlight;
   underline?: ResolvedHighlight;
   style: VisualStyle;
   spec: TypeSpec;
   height: number;
+  fontPx: number;
 }) {
   let sweepPct = 0;
   if (sweep && index >= sweep.from) {
@@ -313,12 +385,26 @@ function Word({
 
   const pad = spec.size * height * 0.1;
 
+  const body = chars
+    ? text.split('').map((ch, j) => (
+        <span key={j} style={unitStyle(chars[j], fontPx)}>
+          {ch}
+        </span>
+      ))
+    : text;
+
+  // Letters set as separate inline-blocks are separate break opportunities, so
+  // without this a word could split down the middle mid-entrance.
+  const noBreak = chars ? { whiteSpace: 'nowrap' as const } : null;
+
   return (
     <>
       <span
         style={{
           position: 'relative',
-          display: 'inline',
+          display: unit || chars ? 'inline-block' : 'inline',
+          ...(unit ? unitStyle(unit, fontPx) : null),
+          ...noBreak,
           backgroundImage:
             sweepPct > 0
               ? `linear-gradient(${style.tokens.marker}, ${style.tokens.marker})`
@@ -338,7 +424,7 @@ function Word({
               : undefined,
         }}
       >
-        {text}
+        {body}
       </span>
       {/* The space carries the marker too, once the reading has passed it.
           Leaving it bare puts a pale nick between every word, which reads as a
@@ -357,6 +443,14 @@ function Word({
       </span>
     </>
   );
+}
+
+/** Style tracking plus whatever the entrance is currently adding, both in em. */
+function trackingWithExtra(base: string, extraEm: number): string {
+  if (Math.abs(extraEm) < 0.0005) return base;
+  const m = /^(-?[\d.]+)em$/.exec(base.trim());
+  const baseEm = m ? Number(m[1]) : 0;
+  return `${(baseEm + extraEm).toFixed(4)}em`;
 }
 
 /* ============================================================================
@@ -382,7 +476,7 @@ function StatContent({
           fontFamily: 'JetBrains Mono Variable, JetBrains Mono, ui-monospace, monospace',
           fontSize: height * 0.175,
           lineHeight: 0.92,
-          letterSpacing: '-0.045em',
+          letterSpacing: trackingWithExtra('-0.045em', rl.trackingEm),
           fontWeight: 500,
           color: style.tokens.ink,
           fontVariantNumeric: 'tabular-nums',
@@ -441,14 +535,33 @@ function countUpText(display: string, progress: number): string {
    Figure & table
    ========================================================================== */
 
+/**
+ * Sustained motion belongs to the picture, not to its frame: the crop stays
+ * exactly where it was composed while the image creeps inside it. Offsets are
+ * fractions of the frame, so a slow zoom travels the same distance at thumbnail
+ * size and at 1080p.
+ */
+function imageTransform(motion: ResolvedLayer['imageMotion']): CSSProperties {
+  if (!motion) return {};
+  return {
+    transform:
+      `translate3d(${(motion.tx * 100).toFixed(3)}%,${(motion.ty * 100).toFixed(3)}%,0)` +
+      ` scale(${motion.scale.toFixed(4)})`,
+    transformOrigin: 'center',
+    willChange: 'transform',
+  };
+}
+
 function FigureContent({
   layer,
   style,
   height,
+  motion,
 }: {
   layer: Extract<Layer, { type: 'figure' }>;
   style: VisualStyle;
   height: number;
+  motion: ResolvedLayer['imageMotion'];
 }) {
   return (
     <div
@@ -474,6 +587,7 @@ function FigureContent({
             maxHeight: '100%',
             objectFit: layer.fit,
             mixBlendMode: isDark(style) ? 'normal' : 'multiply',
+            ...imageTransform(motion),
           }}
           draggable={false}
         />
@@ -491,11 +605,13 @@ function TableContent({
   style,
   height,
   width,
+  motion,
 }: {
   layer: Extract<Layer, { type: 'table' }>;
   style: VisualStyle;
   height: number;
   width: number;
+  motion: ResolvedLayer['imageMotion'];
 }) {
   if (layer.grid) {
     const cellSize = Math.min(height * 0.028, (width / Math.max(1, layer.grid.cells[0]?.length ?? 1)) * 0.11);
@@ -558,7 +674,12 @@ function TableContent({
         <img
           src={layer.src}
           alt={layer.altText ?? ''}
-          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain',
+            ...imageTransform(motion),
+          }}
           draggable={false}
         />
       ) : null}

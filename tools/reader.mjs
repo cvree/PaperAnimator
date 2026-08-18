@@ -28,8 +28,7 @@ const sceneCount = () =>
 
 await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
-await page.waitForSelector('text=Your storyboard', { timeout: 60000 });
-await page.getByRole('button', { name: 'Open the editor' }).first().click();
+await page.waitForSelector('.pa-reader', { timeout: 60000 });
 await page.waitForSelector('.pa-reader', { timeout: 20000 });
 await page.waitForTimeout(1600);
 

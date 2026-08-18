@@ -28,7 +28,7 @@ const meta = await page.evaluate(
 );
 console.log('video:', JSON.stringify(meta));
 
-for (const t of [2, 12, 40, 70]) {
+for (const t of [0.35, 0.7, 1.1, 2, 12, 40]) {
   const ok = await page.evaluate(
     (time) =>
       new Promise((resolve) => {
@@ -40,7 +40,7 @@ for (const t of [2, 12, 40, 70]) {
     t,
   );
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `shots/30-video-${String(t).padStart(2, '0')}s.png` });
+  await page.screenshot({ path: `shots/30-video-${String(t).replace('.', 'p')}s.png` });
   console.log(`  t=${t}s seek ${ok ? 'ok' : 'FAILED'}`);
 }
 await browser.close();

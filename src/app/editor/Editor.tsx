@@ -9,6 +9,7 @@ import { ExportSheet } from './ExportSheet';
 import { EditorTopBar } from './EditorTopBar';
 import { SourceThread } from './SourceThread';
 import { Onboarding } from './Onboarding';
+import { MotionGallery } from './MotionGallery';
 import { Reader } from '@/reader/Reader';
 import { DragHost } from '@/reader/DragHost';
 import { useReader } from '@/reader/readerStore';
@@ -31,6 +32,8 @@ export function Editor() {
   const undo = useApp((s) => s.undo);
   const redo = useApp((s) => s.redo);
   const playing = useApp((s) => s.playing);
+  const motionPicker = useApp((s) => s.motionPicker);
+  const closeMotionPicker = useApp((s) => s.closeMotionPicker);
   const size = useLayoutSize();
   const [panel, setPanel] = useState<Panel>('storyboard');
   const [mobilePane, setMobilePane] = useState<'paper' | 'scenes' | 'preview' | 'review'>('paper');
@@ -84,6 +87,18 @@ export function Editor() {
           e.preventDefault();
           state.seek(0);
           break;
+        case 'm':
+        case 'M': {
+          // The reader's own letters only fire while a passage is marked, so M
+          // is free to mean the same thing everywhere: animate what I'm looking
+          // at. With an element selected it opens on that element alone.
+          if (meta) break;
+          const scene = state.selectedSceneId;
+          if (!scene) break;
+          e.preventDefault();
+          state.openMotionPicker(scene, state.selectedLayerIds[0] ?? null);
+          break;
+        }
         default:
           if (meta && e.key === '.') {
             e.preventDefault();
@@ -249,6 +264,13 @@ export function Editor() {
         <SourceThread />
         <DragHost />
         {!playing && <Onboarding />}
+        {motionPicker && (
+          <MotionGallery
+            sceneId={motionPicker.sceneId}
+            layerId={motionPicker.layerId}
+            onClose={closeMotionPicker}
+          />
+        )}
       </main>
     </div>
   );

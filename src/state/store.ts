@@ -17,7 +17,7 @@ import type { PaperSession } from '@/extract/pdf';
 import { projectDuration, settledOffset } from '@/render/resolveFrame';
 import { computeIntegrity } from '@/core/integrity';
 
-export type Phase = 'landing' | 'processing' | 'setup' | 'editor';
+export type Phase = 'landing' | 'processing' | 'editor';
 export type EditorView = 'compose' | 'integrity' | 'export';
 export type Disclosure = 'simple' | 'studio' | 'pro';
 
@@ -62,9 +62,11 @@ interface AppState {
   past: Command[];
   future: Command[];
 
+  /** The scene (and optionally the one element) whose animation is being chosen. */
+  motionPicker: { sceneId: SceneId; layerId: LayerId | null } | null;
+
   /* flags */
   reducedMotion: boolean;
-  firstRevealDone: boolean;
   toast: { id: string; message: string; action?: { label: string; run: () => void } } | null;
 
   /* actions */
@@ -83,6 +85,9 @@ interface AppState {
   hoverSource: (ref: SourceRef | null) => void;
   lightScenes: (ids: SceneId[]) => void;
 
+  openMotionPicker: (sceneId: SceneId, layerId?: LayerId | null) => void;
+  closeMotionPicker: () => void;
+
   play: () => void;
   pause: () => void;
   seek: (ms: number) => void;
@@ -95,7 +100,6 @@ interface AppState {
 
   showToast: (message: string, action?: { label: string; run: () => void }) => void;
   dismissToast: () => void;
-  markRevealDone: () => void;
   reset: () => void;
 }
 
@@ -117,6 +121,8 @@ export const useApp = create<AppState>((set, get) => ({
   hoveredSourceRef: null,
   litSceneIds: [],
 
+  motionPicker: null,
+
   playing: false,
   timeMs: 0,
   speaking: false,
@@ -126,7 +132,6 @@ export const useApp = create<AppState>((set, get) => ({
 
   reducedMotion:
     typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches,
-  firstRevealDone: false,
   toast: null,
 
   setPhase: (phase) => set({ phase }),
@@ -198,6 +203,13 @@ export const useApp = create<AppState>((set, get) => ({
   hoverSource: (hoveredSourceRef) => set({ hoveredSourceRef }),
 
   lightScenes: (litSceneIds) => set({ litSceneIds }),
+
+  openMotionPicker: (sceneId, layerId = null) => {
+    // Choosing an animation is watching it, so playback stops rather than
+    // competing with the tiles for the eye.
+    set({ motionPicker: { sceneId, layerId }, selectedSceneId: sceneId, playing: false });
+  },
+  closeMotionPicker: () => set({ motionPicker: null }),
 
   play: () => set({ playing: true }),
   pause: () => set({ playing: false }),
@@ -283,7 +295,6 @@ export const useApp = create<AppState>((set, get) => ({
     }, 4200);
   },
   dismissToast: () => set({ toast: null }),
-  markRevealDone: () => set({ firstRevealDone: true }),
 
   reset: () => {
     get().session?.destroy();
@@ -296,11 +307,11 @@ export const useApp = create<AppState>((set, get) => ({
       selectedSceneId: null,
       selectedLayerIds: [],
       sourceFocus: null,
+      motionPicker: null,
       playing: false,
       timeMs: 0,
       past: [],
       future: [],
-      firstRevealDone: false,
     });
   },
 }));

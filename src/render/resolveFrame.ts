@@ -1,4 +1,14 @@
 import type { Layer, NarrationCue, Project, Scene, SceneId, LayerId } from '@/core/types';
+import {
+  ease,
+  expandReveal,
+  holdDef,
+  motionDef,
+  settledReveal,
+  stillMotion,
+  type ResolvedMask,
+  type ResolvedReveal,
+} from './motion';
 
 /**
  * resolveFrame is the contract that makes preview equal export.
@@ -34,9 +44,18 @@ export interface ResolvedLayer {
   tx: number;
   ty: number;
   scale: number;
-  /** Reveal clip as fractions of the layer's own box. */
-  clip: { top: number; right: number; bottom: number; left: number } | null;
+  /** Degrees, on top of the layer's own rotation. */
+  rotate: number;
+  /** The shape currently uncovering the layer, in fractions of its own box. */
+  mask: ResolvedMask | null;
+  /** Blur radius as a fraction of canvas height, so it survives any scale. */
   blur: number;
+  /** Extra letter-spacing in em of the layer's own type. */
+  trackingEm: number;
+  /** Per-word or per-letter state, for entrances that stagger their own text. */
+  reveal: ResolvedReveal | null;
+  /** Sustained motion of the picture inside a figure's frame. */
+  imageMotion: { tx: number; ty: number; scale: number } | null;
   highlights: ResolvedHighlight[];
   needsReview: boolean;
 }
@@ -184,77 +203,99 @@ function resolveLayer(
   options: ResolveOptions,
 ): ResolvedLayer {
   const { enter } = layer;
+  const def = motionDef(enter.preset);
   const start = enter.delayMs;
   const raw = enter.durationMs <= 0 ? 1 : clamp01((sceneTMs - start) / enter.durationMs);
-  const p = options.reducedMotion ? (sceneTMs >= start ? 1 : 0) : easeOut(raw);
+  const p = options.reducedMotion ? (sceneTMs >= start ? 1 : 0) : ease(def.ease, raw);
+  const intensity = clampRange(enter.intensity ?? 1, 0.25, 2);
 
-  let opacity = layer.opacity;
-  let tx = 0;
-  let ty = 0;
-  let scale = 1;
-  let clip: ResolvedLayer['clip'] = null;
-  let blur = 0;
+  // Reduced motion is not "the same thing, smaller". It is the informational
+  // equivalent: the content appears, on time, without travelling.
+  const motion = options.reducedMotion ? stillMotion() : def.resolve(p, intensity, raw);
+  if (options.reducedMotion && enter.reducedMotion === 'fade') {
+    motion.opacity = clamp01((sceneTMs - start) / 150);
+  }
 
-  if (options.reducedMotion) {
-    // Informational equivalent: a short opacity change, no movement.
-    if (enter.reducedMotion === 'fade') {
-      const fadeP = clamp01((sceneTMs - start) / 150);
-      opacity *= fadeP;
-    }
-  } else {
-    switch (enter.preset) {
-      case 'rise':
-        opacity *= p;
-        ty = (1 - p) * 0.028;
-        break;
-      case 'settle':
-        opacity *= p;
-        scale = 1 + (1 - p) * 0.035;
-        break;
-      case 'draw-on':
-        clip = { top: 0, right: 1 - p, bottom: 0, left: 0 };
-        break;
-      case 'crop-in':
-        opacity *= clamp01(p * 1.6);
-        clip = { top: (1 - p) * 0.14, right: (1 - p) * 0.14, bottom: (1 - p) * 0.14, left: (1 - p) * 0.14 };
-        scale = 1 + (1 - p) * 0.02;
-        break;
-      case 'unfold':
-        opacity *= p;
-        clip = { top: 0, right: 0, bottom: 1 - p, left: 0 };
-        break;
-      case 'trace':
-        clip = { top: 0, right: 1 - p, bottom: 0, left: 0 };
-        opacity *= clamp01(p * 3);
-        break;
-      case 'slide':
-        opacity *= p;
-        tx = (1 - p) * -0.03;
-        break;
-      case 'none':
-      default:
-        break;
-    }
-    if (p < 1 && (enter.preset === 'rise' || enter.preset === 'settle')) {
-      blur = (1 - p) * 1.6;
+  let tx = motion.tx;
+  let ty = motion.ty;
+  let scale = motion.scale;
+  let rotate = motion.rotate;
+  let imageMotion: ResolvedLayer['imageMotion'] = null;
+
+  // Sustained motion runs for as long as the layer is on screen, so a figure
+  // keeps breathing after its entrance instead of freezing into a slide.
+  const hold = holdDef(enter.hold ?? 'none');
+  if (!options.reducedMotion && hold.id !== 'none') {
+    const span = Math.max(1, scene.durationMs - start);
+    const cycle = clamp01((sceneTMs - start) / span);
+    const h = hold.resolve(cycle, intensity);
+    const insideTheFrame = hold.prefersImage && (layer.type === 'figure' || layer.type === 'table');
+    if (insideTheFrame) {
+      imageMotion = { tx: h.tx, ty: h.ty, scale: h.scale };
+    } else {
+      tx += h.tx;
+      ty += h.ty;
+      scale *= h.scale;
+      rotate += h.rotate;
     }
   }
 
-  const highlights = resolveHighlights(layer, scene, sceneTMs, options);
+  const reveal = resolveReveal(layer, motion.reveal, raw, options);
 
   return {
     id: layer.id,
     layer,
     progress: p,
-    opacity,
+    opacity: layer.opacity * motion.opacity,
     tx,
     ty,
     scale,
-    clip,
-    blur,
-    highlights,
+    rotate,
+    mask: motion.mask,
+    blur: motion.blur,
+    trackingEm: motion.trackingEm,
+    reveal,
+    imageMotion,
+    highlights: resolveHighlights(layer, scene, sceneTMs, options),
     needsReview: needsReview(layer),
   };
+}
+
+/**
+ * How many words or letters a layer has to stagger.
+ *
+ * The count has to agree with what the renderers iterate, or a word would
+ * arrive with another word's timing. Both of them build the same string — the
+ * layer's atoms joined by single spaces — so both count the same units.
+ */
+export function revealText(layer: Layer): string | null {
+  if (layer.type !== 'text') return null;
+  return layer.atoms
+    .map((a) => a.text)
+    .join(' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ');
+}
+
+function resolveReveal(
+  layer: Layer,
+  plan: ReturnType<typeof stillMotion>['reveal'],
+  raw: number,
+  options: ResolveOptions,
+): ResolvedReveal | null {
+  // Staggering applies to set text only. A picture has no words to stagger, so
+  // a text preset simply falls back to its whole-block behaviour there.
+  const text = revealText(layer);
+  if (!text) return null;
+
+  const words = text.split(' ');
+  if (!plan) return null;
+
+  const count = plan.unit === 'char' ? text.length : words.length;
+  if (count === 0) return null;
+  if (options.reducedMotion) return settledReveal(plan.unit, count);
+  return expandReveal(plan, count, raw);
 }
 
 /* ============================================================================
@@ -436,9 +477,8 @@ function clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
-/** Matches --ease-out: cubic-bezier(0.16, 1, 0.3, 1) closely enough to be indistinguishable. */
-function easeOut(t: number): number {
-  return 1 - Math.pow(1 - t, 3.2);
+function clampRange(x: number, lo: number, hi: number): number {
+  return x < lo ? lo : x > hi ? hi : x;
 }
 
 export function easeInOut(t: number): number {

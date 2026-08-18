@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { useApp, useSelectedScene } from '@/state/store';
 import { PROVENANCE_META, provenanceRef, type Layer, type Provenance } from '@/core/types';
 import { listVoices, speechSupported, type Voice } from '@/narrate/speech';
+import { HOLDS, MOTIONS, motionDef } from '@/render/motion';
+import { Spark } from './SceneRail';
 import { useEffect } from 'react';
 
 /**
@@ -360,15 +362,27 @@ export function ProvenanceCard({
    Motion
    ========================================================================== */
 
-const PRESETS = ['rise', 'settle', 'draw-on', 'crop-in', 'unfold', 'slide', 'none'] as const;
-
 function MotionTab({ layer }: { layer: Layer | null }) {
   const scene = useSelectedScene()!;
   const mutate = useApp((s) => s.mutate);
+  const openMotionPicker = useApp((s) => s.openMotionPicker);
+
+  const gallery = (
+    <button
+      type="button"
+      onClick={() => openMotionPicker(scene.id, layer?.id ?? null)}
+      className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--accent)] bg-[var(--accent-subtle)] px-3 py-2 text-2xs text-[var(--accent)] transition-colors hover:bg-[var(--accent-quiet)]"
+    >
+      <Spark />
+      {layer ? 'Animate this element' : 'Animate this scene'}
+      <span className="text-[var(--ink-faint)]">M</span>
+    </button>
+  );
 
   if (!layer) {
     return (
       <div className="space-y-4">
+        {gallery}
         <Field label="Transition in">
           <select
             value={scene.transitionIn}
@@ -388,7 +402,8 @@ function MotionTab({ layer }: { layer: Layer | null }) {
           </select>
         </Field>
         <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-          Select an element to change how it arrives.
+          The gallery animates every element on the scene at once. Select one to give it its own
+          entrance.
         </p>
       </div>
     );
@@ -405,20 +420,56 @@ function MotionTab({ layer }: { layer: Layer | null }) {
       `motion:${layer.id}`,
     );
 
+  const def = motionDef(layer.enter.preset);
+
   return (
     <div className="space-y-5">
-      <Field label="Entrance">
+      {gallery}
+
+      <Field label="Entrance" hint={def.blurb}>
         <select
           value={layer.enter.preset}
-          onChange={(e) => set({ preset: e.target.value as Layer['enter']['preset'] })}
+          onChange={(e) => {
+            const next = motionDef(e.target.value as Layer['enter']['preset']);
+            set({
+              preset: next.id,
+              durationMs: next.durationMs,
+              reducedMotion: next.reducedMotion,
+            });
+          }}
           className="input"
         >
-          {PRESETS.map((p) => (
-            <option key={p} value={p}>
-              {p}
+          {MOTIONS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
             </option>
           ))}
         </select>
+      </Field>
+
+      <Field label="While it stays on screen">
+        <select
+          value={layer.enter.hold ?? 'none'}
+          onChange={(e) => set({ hold: e.target.value as Layer['enter']['hold'] })}
+          className="input"
+        >
+          {HOLDS.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field label="Volume" hint="The same move, quieter or louder.">
+        <Range
+          min={0.25}
+          max={2}
+          step={0.05}
+          value={layer.enter.intensity ?? 1}
+          onChange={(v) => set({ intensity: v })}
+          format={(v) => `${v.toFixed(2)}×`}
+        />
       </Field>
 
       <Field label="Delay">

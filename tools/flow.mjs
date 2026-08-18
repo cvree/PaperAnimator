@@ -16,23 +16,17 @@ await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
 await page.waitForTimeout(1400);
 await page.screenshot({ path: 'shots/10-processing.png' });
 
-// wait for setup
+// straight into the editor, on the paper, with an empty storyboard
 try {
-  await page.waitForSelector('text=Your storyboard', { timeout: 30000 });
-  console.log('reached setup');
-} catch { console.log('DID NOT REACH SETUP'); }
+  await page.waitForSelector('.pa-reader', { timeout: 30000 });
+  console.log('reached the editor');
+} catch { console.log('DID NOT REACH THE EDITOR'); }
 await page.waitForTimeout(2200);
-await page.screenshot({ path: 'shots/11-setup.png' });
-await page.screenshot({ path: 'shots/11-setup-full.png', fullPage: true });
+await page.screenshot({ path: 'shots/11-editor-on-the-paper.png' });
 
-// into the editor
-const openBtn = page.getByRole('button', { name: 'Open the editor' });
-if (await openBtn.count()) {
-  await openBtn.first().click();
-  await page.waitForTimeout(2500);
-  await page.screenshot({ path: 'shots/12-editor.png' });
-  console.log('reached editor');
-}
+const scenes = await page.evaluate(() => document.querySelectorAll('[data-drop^="scene:"]').length);
+console.log('scenes on arrival (must be 0):', scenes);
+await page.screenshot({ path: 'shots/12-editor.png' });
 
 console.log(errors.length ? 'CONSOLE ERRORS:\n' + errors.slice(0, 15).join('\n') : 'no console errors');
 await browser.close();

@@ -1,5 +1,6 @@
 import type { Layer } from '@/core/types';
 import type { FrameState, ResolvedLayer } from '@/render/resolveFrame';
+import type { ResolvedMask, RevealUnit } from '@/render/motion';
 import { STYLES, type TypeSpec, type VisualStyle } from '@/render/styles';
 
 /**
@@ -59,25 +60,25 @@ function paintLayer(
   ctx.save();
   ctx.globalAlpha = rl.opacity;
 
-  if (rl.clip) {
-    ctx.beginPath();
-    ctx.rect(
-      x + rl.clip.left * w,
-      y + rl.clip.top * h,
-      w * (1 - rl.clip.left - rl.clip.right),
-      h * (1 - rl.clip.top - rl.clip.bottom),
-    );
+  // The clip is applied before the transform, exactly as clip-path is in the
+  // browser: the mask belongs to the layer's box, not to the moved image of it.
+  if (rl.mask) {
+    tracePath(ctx, rl.mask, x, y, w, h);
     ctx.clip();
   }
 
-  if (rl.scale !== 1 || layer.rotation) {
+  const rotation = layer.rotation + rl.rotate;
+  if (rl.scale !== 1 || rotation) {
     const cx = x + w / 2;
     const cy = y + h / 2;
     ctx.translate(cx, cy);
     ctx.scale(rl.scale, rl.scale);
-    if (layer.rotation) ctx.rotate((layer.rotation * Math.PI) / 180);
+    if (rotation) ctx.rotate((rotation * Math.PI) / 180);
     ctx.translate(-cx, -cy);
   }
+
+  const blurPx = rl.blur * o.height;
+  if (blurPx > 0.05) ctx.filter = `blur(${blurPx.toFixed(2)}px)`;
 
   switch (layer.type) {
     case 'text':
@@ -88,7 +89,7 @@ function paintLayer(
       break;
     case 'figure':
     case 'table':
-      paintImageBox(ctx, layer, style, o, x, y, w, h);
+      paintImageBox(ctx, layer, rl.imageMotion, style, o, x, y, w, h);
       break;
     case 'quote':
       paintQuote(ctx, layer, style, o, x, y, w);
@@ -105,6 +106,43 @@ function paintLayer(
   }
 
   ctx.restore();
+}
+
+/**
+ * The same shape SceneSurface hands to clip-path, as a canvas path. The circle
+ * radius is measured against the box's half-diagonal in both places, so a full
+ * iris uncovers the last corner at the same instant on screen and on export.
+ */
+function tracePath(
+  ctx: CanvasRenderingContext2D,
+  mask: ResolvedMask,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  ctx.beginPath();
+  if (mask.kind === 'inset') {
+    ctx.rect(
+      x + mask.left * w,
+      y + mask.top * h,
+      w * (1 - mask.left - mask.right),
+      h * (1 - mask.top - mask.bottom),
+    );
+    return;
+  }
+  if (mask.kind === 'circle') {
+    const half = Math.hypot(w, h) / 2;
+    ctx.arc(x + mask.cx * w, y + mask.cy * h, Math.max(0, mask.r * half), 0, Math.PI * 2);
+    return;
+  }
+  mask.points.forEach(([px, py], i) => {
+    const cx = x + px * w;
+    const cy = y + py * h;
+    if (i === 0) ctx.moveTo(cx, cy);
+    else ctx.lineTo(cx, cy);
+  });
+  ctx.closePath();
 }
 
 /* ============================================================================
@@ -127,14 +165,16 @@ function paintText(
 
   const raw = layer.atoms.map((a) => a.text).join(' ');
   const text = transformText(raw, spec);
-  applyFont(ctx, spec, o.height);
+  applyFont(ctx, spec, o.height, rl.trackingEm);
 
-  const lineHeight = spec.size * o.height * spec.leading;
+  const fontPx = spec.size * o.height;
+  const lineHeight = fontPx * spec.leading;
   const lines = wrapWords(ctx, text, w);
   const sweep = rl.highlights.find((h) => h.treatment === 'sweep');
 
   let wordIndex = 0;
-  let lineY = y + spec.size * o.height * 0.82;
+  let charIndex = 0;
+  let lineY = y + fontPx * 0.82;
 
   for (const line of lines) {
     let cursorX = x;
@@ -161,22 +201,81 @@ function paintText(
       }
 
       if (runStart !== null) {
-        const pad = spec.size * o.height * 0.1;
+        const pad = fontPx * 0.1;
         ctx.fillStyle = style.tokens.marker;
-        ctx.fillRect(
-          runStart - pad,
-          lineY - spec.size * o.height * 0.78,
-          runEnd - runStart + pad * 2,
-          spec.size * o.height * 1.06,
-        );
+        ctx.fillRect(runStart - pad, lineY - fontPx * 0.78, runEnd - runStart + pad * 2, fontPx * 1.06);
       }
     }
 
     ctx.fillStyle = color;
-    ctx.fillText(line.text, cursorX, lineY);
+
+    if (rl.reveal) {
+      // Staggered text is set one unit at a time so each can carry its own
+      // offset. The advances come from the same measurement the whole line
+      // would have used, so the words land exactly where the line put them.
+      const spaceW = ctx.measureText(' ').width;
+      let cx = cursorX;
+      for (let k = 0; k < line.words.length; k++) {
+        const word = line.words[k];
+        const wordW = ctx.measureText(word).width;
+        if (rl.reveal.unit === 'word') {
+          paintUnit(ctx, word, cx, lineY, fontPx, rl.reveal.units[wordIndex + k]);
+        } else {
+          let chX = cx;
+          for (let j = 0; j < word.length; j++) {
+            const ch = word[j];
+            paintUnit(ctx, ch, chX, lineY, fontPx, rl.reveal.units[charIndex + j]);
+            chX += ctx.measureText(ch).width;
+          }
+          charIndex += word.length + 1;
+        }
+        cx += wordW + spaceW;
+      }
+    } else {
+      ctx.fillText(line.text, cursorX, lineY);
+    }
+
     wordIndex += line.words.length;
     lineY += lineHeight;
   }
+}
+
+/** One word or one letter, moved by its own share of the entrance. */
+function paintUnit(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  baseline: number,
+  fontPx: number,
+  unit: RevealUnit | undefined,
+): void {
+  if (!unit) {
+    ctx.fillText(text, x, baseline);
+    return;
+  }
+  if (unit.opacity <= 0.004) return;
+
+  const alpha = ctx.globalAlpha;
+  const filter = ctx.filter;
+  ctx.save();
+  ctx.globalAlpha = alpha * Math.min(1, unit.opacity);
+
+  const blurPx = unit.blur * fontPx;
+  if (blurPx > 0.05) ctx.filter = `blur(${blurPx.toFixed(2)}px)`;
+
+  const w = ctx.measureText(text).width;
+  const cx = x + w / 2;
+  const cy = baseline - fontPx * 0.32;
+  ctx.translate(unit.tx * fontPx, unit.ty * fontPx);
+  ctx.translate(cx, cy);
+  ctx.scale(unit.scale, unit.scale);
+  if (unit.rotate) ctx.rotate((unit.rotate * Math.PI) / 180);
+  ctx.translate(-cx, -cy);
+
+  ctx.fillText(text, x, baseline);
+  ctx.restore();
+  ctx.globalAlpha = alpha;
+  ctx.filter = filter;
 }
 
 interface WrappedLine {
@@ -221,6 +320,10 @@ function paintStat(
   const size = o.height * 0.175;
   ctx.font = `500 ${size}px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace`;
   ctx.textBaseline = 'alphabetic';
+  if ('letterSpacing' in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
+      `${((-0.045 + rl.trackingEm) * size).toFixed(3)}px`;
+  }
   ctx.fillStyle = style.tokens.ink;
   ctx.fillText(display, x, y + size * 0.86);
 
@@ -264,6 +367,7 @@ function countUp(display: string, progress: number): string {
 function paintImageBox(
   ctx: CanvasRenderingContext2D,
   layer: Extract<Layer, { type: 'figure' | 'table' }>,
+  motion: ResolvedLayer['imageMotion'],
   style: VisualStyle,
   o: PaintOptions,
   x: number,
@@ -294,7 +398,23 @@ function paintImageBox(
   const scale = Math.min(boxW / iw, boxH / ih);
   const dw = iw * scale;
   const dh = ih * scale;
+
+  // Sustained motion moves the picture within its frame, so the frame is
+  // clipped first — a slow zoom must not spill over the crop it was composed to.
+  ctx.save();
+  if (motion) {
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    ctx.translate(motion.tx * w, motion.ty * h);
+    ctx.translate(cx, cy);
+    ctx.scale(motion.scale, motion.scale);
+    ctx.translate(-cx, -cy);
+  }
   ctx.drawImage(img, x + pad + (boxW - dw) / 2, y + pad + (boxH - dh) / 2, dw, dh);
+  ctx.restore();
 }
 
 function imageWidth(img: CanvasImageSource): number {
@@ -368,12 +488,23 @@ function paintCaption(
    Type helpers
    ========================================================================== */
 
-function applyFont(ctx: CanvasRenderingContext2D, spec: TypeSpec, height: number): void {
+function applyFont(
+  ctx: CanvasRenderingContext2D,
+  spec: TypeSpec,
+  height: number,
+  extraEm = 0,
+): void {
   const style = spec.italic ? 'italic ' : '';
-  ctx.font = `${style}${spec.weight} ${spec.size * height}px ${spec.family}`;
+  const size = spec.size * height;
+  ctx.font = `${style}${spec.weight} ${size}px ${spec.family}`;
   ctx.textBaseline = 'alphabetic';
   if ('letterSpacing' in ctx) {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = spec.tracking;
+    // Canvas takes a length, not an em value, so the entrance's extra tracking
+    // is converted against this layer's own type size — the same em the browser
+    // would have resolved it against.
+    const baseEm = Number(/^(-?[\d.]+)em$/.exec(spec.tracking.trim())?.[1] ?? 0);
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
+      `${((baseEm + extraEm) * size).toFixed(3)}px`;
   }
 }
 

@@ -404,7 +404,13 @@ export interface Frame {
   h: number;
 }
 
+/**
+ * How a layer arrives. Every preset is defined once, in `@/render/motion`, as a
+ * pure function of progress — the editor, the previews and the exporter all read
+ * that one definition, so an entrance cannot look different where it counts.
+ */
 export type MotionPreset =
+  /* the originals */
   | 'rise'
   | 'settle'
   | 'draw-on'
@@ -412,7 +418,26 @@ export type MotionPreset =
   | 'unfold'
   | 'trace'
   | 'slide'
-  | 'none';
+  | 'none'
+  /* word- and letter-level entrances (text layers) */
+  | 'cascade'
+  | 'typeset'
+  | 'scatter'
+  | 'weigh-in'
+  | 'tumble'
+  /* whole-block entrances */
+  | 'focus-pull'
+  | 'ink-bleed'
+  | 'sweep'
+  | 'push'
+  /* masked entrances, at their best on figures */
+  | 'iris'
+  | 'wipe'
+  | 'develop'
+  | 'shutter';
+
+/** Sustained motion for as long as the layer is on screen. */
+export type HoldPreset = 'none' | 'ken-burns' | 'drift' | 'breathe' | 'float' | 'sway';
 
 export interface MotionSpec {
   preset: MotionPreset;
@@ -420,6 +445,13 @@ export interface MotionSpec {
   durationMs: number;
   /** Required. There is no way to author motion without deciding its still form. */
   reducedMotion: 'fade' | 'none';
+  /** What keeps happening after the entrance has landed. Defaults to none. */
+  hold?: HoldPreset;
+  /**
+   * How far the entrance travels, 0.25–2. One preset, quieter or louder, so a
+   * choice of character does not force a choice of volume.
+   */
+  intensity?: number;
 }
 
 export type HighlightTreatment = 'sweep' | 'underline' | 'box' | 'spotlight' | 'strike';

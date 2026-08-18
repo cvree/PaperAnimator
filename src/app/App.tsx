@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Landing } from './landing/Landing';
 import { Processing, type ProcessingState } from './processing/Processing';
-import { Setup } from './setup/Setup';
 import { Editor } from './editor/Editor';
 import { Toasts } from '@/ui/Toasts';
-import { useApp } from '@/state/store';
+import { useApp, DEFAULT_SETTINGS } from '@/state/store';
+import { newId } from '@/core/id';
+import type { Project } from '@/core/types';
 import { extractPaper, PdfIntakeError, type Artifact, type PaperSession } from '@/extract/pdf';
 import { collectDiagnostics } from '@/core/diagnostics';
 import { buildSamplePaper } from './sample';
@@ -13,6 +14,7 @@ export default function App() {
   const phase = useApp((s) => s.phase);
   const setPhase = useApp((s) => s.setPhase);
   const attachSession = useApp((s) => s.attachSession);
+  const setProject = useApp((s) => s.setProject);
   const reset = useApp((s) => s.reset);
   const reducedMotion = useApp((s) => s.reducedMotion);
 
@@ -65,7 +67,23 @@ export default function App() {
           return;
         }
         attachSession(session);
-        setPhase('setup');
+
+        // The paper opens as the paper. Nothing is storyboarded on your behalf:
+        // the storyboard starts empty and fills with what you mark, because a
+        // talk assembled by a machine is a talk you then have to argue with.
+        const project: Project = {
+          id: newId('project'),
+          version: 1,
+          title: session.paper.meta.title ?? file.name.replace(/\.pdf$/i, ''),
+          paper: session.paper,
+          settings: DEFAULT_SETTINGS,
+          scenes: [],
+          style: 'broadsheet',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setProject(project);
+        setPhase('editor');
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
         if (err instanceof PdfIntakeError) {
@@ -103,7 +121,7 @@ export default function App() {
         }
       }
     },
-    [attachSession, setPhase],
+    [attachSession, setProject, setPhase],
   );
 
   const runSample = useCallback(async () => {
@@ -126,7 +144,6 @@ export default function App() {
       {phase === 'processing' && (
         <Processing state={processing} onCancel={cancel} reducedMotion={reducedMotion} />
       )}
-      {phase === 'setup' && <Setup onBack={cancel} />}
       {phase === 'editor' && <Editor />}
 
       <Toasts />

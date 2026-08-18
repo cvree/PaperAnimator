@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Fragment } from 'react';
 import { useApp } from '@/state/store';
 import type { Aspect, Scene, StyleId } from '@/core/types';
+import { composeScenes } from '@/compose/compose';
 import { ScenePreview } from '@/render/ScenePreview';
 import { provenancesOf } from '@/core/integrity';
 import { useReader } from '@/reader/readerStore';
@@ -73,6 +74,8 @@ export function SceneRail({
           <span className="numeral text-2xs text-[var(--ink-faint)]">{scenes.length}</span>
         </div>
       )}
+
+      {scenes.length === 0 && !carrying && <EmptyRail />}
 
       <DndContext
         sensors={sensors}
@@ -129,6 +132,55 @@ export function SceneRail({
           </div>
         </SortableContext>
       </DndContext>
+    </div>
+  );
+}
+
+/**
+ * An empty storyboard is the normal way to start: the paper opens as the paper,
+ * and nothing is composed until you mark something. The offer to draft one is
+ * here, plainly, for anyone who would rather begin from a draft than a blank —
+ * but it is an offer, taken deliberately, not something that already happened.
+ */
+function EmptyRail() {
+  const project = useApp((s) => s.project);
+  const mutate = useApp((s) => s.mutate);
+  const seekScene = useApp((s) => s.seekScene);
+  const showToast = useApp((s) => s.showToast);
+
+  if (!project) return null;
+
+  const draft = () => {
+    const scenes = composeScenes(project.paper, {
+      settings: project.settings,
+      targetDurationMs: project.settings.targetDurationMs,
+    });
+    if (!scenes.length) {
+      showToast('There was not enough structure in this paper to draft from');
+      return;
+    }
+    mutate('Draft a storyboard', (d) => {
+      d.scenes.push(...scenes);
+    });
+    seekScene(scenes[0].id);
+    showToast(`Drafted ${scenes.length} scenes — every one traced to the paper`, {
+      label: 'Undo',
+      run: () => useApp.getState().undo(),
+    });
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
+      <p className="text-xs leading-[1.55] text-[var(--ink-secondary)]">
+        Nothing here yet. Highlight something in the paper and drop a tool on it.
+      </p>
+      <button
+        type="button"
+        onClick={draft}
+        className="rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] bg-[var(--surface-raised)] px-3 py-1.5 text-2xs text-[var(--ink-secondary)] transition-colors hover:border-[var(--rule-strong)] hover:text-[var(--ink-primary)]"
+      >
+        Or draft one from the whole paper
+      </button>
     </div>
   );
 }
@@ -201,6 +253,7 @@ function SceneCard({
   });
   const mutate = useApp((s) => s.mutate);
   const showToast = useApp((s) => s.showToast);
+  const openMotionPicker = useApp((s) => s.openMotionPicker);
 
   const needsReview = scene.layers.some((l) =>
     provenancesOf(l).some((p) => p.kind === 'unsupported' && !p.reviewed),
@@ -271,6 +324,23 @@ function SceneCard({
         </div>
       </button>
 
+      {/* Animation is one click from the storyboard, at every level of the
+          editor — it is the difference between a slide and a film, and it does
+          not belong behind an inspector tab. */}
+      <button
+        type="button"
+        aria-label={`Animate scene ${index}, ${scene.title}`}
+        title="Animate this scene"
+        onClick={(e) => {
+          e.stopPropagation();
+          openMotionPicker(scene.id);
+        }}
+        className="absolute bottom-6 right-1 flex h-6 items-center gap-1 rounded-[2px] bg-[var(--surface-raised)]/90 px-1.5 text-2xs text-[var(--ink-secondary)] opacity-0 backdrop-blur-sm transition-opacity hover:text-[var(--accent)] focus-visible:opacity-100 group-hover:opacity-100"
+      >
+        <Spark />
+        Animate
+      </button>
+
       {/* drag handle: pointer and keyboard */}
       <button
         type="button"
@@ -311,5 +381,14 @@ function SceneCard({
         </svg>
       </button>
     </div>
+  );
+}
+
+/** The mark for motion: a four-pointed spark, drawn rather than typed. */
+export function Spark({ size = 9 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+      <path d="M5 0c.35 2.6 1.4 4 4 4.4v.2C6.4 5 5.35 6.4 5 9c-.35-2.6-1.4-4-4-4.4v-.2C3.6 4 4.65 2.6 5 0Z" />
+    </svg>
   );
 }

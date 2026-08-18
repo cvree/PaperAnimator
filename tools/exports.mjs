@@ -24,11 +24,18 @@ page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
 
 await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
-await page.waitForSelector('text=Your storyboard', { timeout: 40000 });
-await page.getByRole('button', { name: 'Open the editor' }).first().click();
+await page.waitForSelector('.pa-reader', { timeout: 40000 });
 await page.waitForTimeout(1200);
 const skip = page.getByRole('button', { name: 'Skip' }).first();
 if (await skip.count()) await skip.click();
+
+/* The storyboard now starts empty, so anything that needs scenes asks for the
+   draft the same way a person would. */
+const draftBtn = page.getByRole('button', { name: 'Or draft one from the whole paper' });
+if (await draftBtn.count()) {
+  await draftBtn.first().click();
+  await page.waitForTimeout(1500);
+}
 
 await page.getByRole('button', { name: 'Export' }).first().click();
 await page.waitForTimeout(600);

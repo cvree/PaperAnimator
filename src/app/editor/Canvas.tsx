@@ -6,6 +6,7 @@ import { SceneSurface } from '@/render/SceneSurface';
 import { Narrator } from '@/narrate/speech';
 import { formatTimecode } from '@/core/format';
 import { isDarkStyle } from '@/render/styles';
+import { Spark } from './SceneRail';
 
 /**
  * The live canvas. The playhead is a wall clock; every pixel comes from
@@ -268,6 +269,15 @@ export function Canvas() {
         onSeek={seek}
         sceneIndex={frame?.sceneIndex ?? 0}
         sceneCount={project.scenes.filter((s) => !s.hidden).length}
+        onAnimate={
+          frame?.sceneId
+            ? () =>
+                useApp
+                  .getState()
+                  .openMotionPicker(frame.sceneId!, (selectedLayerIds[0] as never) ?? null)
+            : null
+        }
+        animateLabel={selectedLayerIds.length === 1 ? 'Animate this' : 'Animate'}
       />
     </div>
   );
@@ -282,6 +292,8 @@ function Transport({
   onSeek,
   sceneIndex,
   sceneCount,
+  onAnimate,
+  animateLabel,
 }: {
   timeMs: number;
   total: number;
@@ -291,6 +303,8 @@ function Transport({
   onSeek: (ms: number) => void;
   sceneIndex: number;
   sceneCount: number;
+  onAnimate: (() => void) | null;
+  animateLabel: string;
 }) {
   return (
     <div
@@ -336,7 +350,19 @@ function Transport({
         {formatTimecode(total)}
       </span>
 
-      <span className="label shrink-0 hidden sm:block">
+      {onAnimate && (
+        <button
+          type="button"
+          onClick={onAnimate}
+          title="Choose how this arrives (M)"
+          className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] px-2 py-1 text-2xs text-[var(--ink-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+        >
+          <Spark />
+          <span className="hidden sm:inline">{animateLabel}</span>
+        </button>
+      )}
+
+      <span className="label shrink-0 hidden lg:block">
         Scene {sceneIndex + 1} / {sceneCount}
       </span>
     </div>

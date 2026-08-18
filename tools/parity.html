@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Motion parity — screen against export</title>
+    <style>
+      body {
+        margin: 0;
+        background: #101214;
+        color: #e7e9ec;
+        font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }
+      h1 {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 14px 16px 0;
+        margin: 0;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 16px;
+        border-bottom: 1px solid #22262a;
+      }
+      .name {
+        width: 92px;
+        flex: none;
+        padding-top: 6px;
+        font-weight: 600;
+      }
+      .pair {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .tag {
+        font-size: 9px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        opacity: 0.45;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Screen (top) against export (bottom) — same frame, same instant</h1>
+    <div id="sheet"></div>
+    <script type="module" src="/tools/parity.tsx"></script>
+  </body>
+</html>

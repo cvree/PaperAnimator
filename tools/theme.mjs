@@ -10,10 +10,9 @@ await page.getByRole('button', { name: /Switch to the dark Press appearance/ }).
 await page.waitForTimeout(900);
 await page.screenshot({ path: 'shots/60-press-landing.png' });
 await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
-await page.waitForSelector('text=Your storyboard', { timeout: 40000 });
+await page.waitForSelector('.pa-reader', { timeout: 40000 });
 await page.waitForTimeout(1500);
 await page.screenshot({ path: 'shots/61-press-setup.png' });
-await page.getByRole('button', { name: 'Open the editor' }).first().click();
 await page.waitForTimeout(1800);
 const skip = page.getByRole('button', { name: 'Skip' }).first();
 if (await skip.count()) await skip.click();

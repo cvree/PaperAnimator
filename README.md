@@ -13,8 +13,13 @@ uploaded, nothing is stored, and nothing is used for training.
 **Read the paper. Mark it up. That is the presentation.**
 
 The editor opens on the real pages, rendered as printed, with text you can drag across the
-way you would in any PDF reader. Highlight a passage and a bar arrives on it. Then either
-click a tool or pick one up and drop it on the words:
+way you would in any PDF reader — and on an empty storyboard. Nothing is composed on your
+behalf, because a talk assembled by a machine is a talk you then have to argue with. (If
+you would rather begin from a draft, the empty storyboard offers to make one from the
+whole paper; it stays a thing you asked for.)
+
+Highlight a passage and a bar arrives on it. Then either click a tool or pick one up and
+drop it on the words:
 
 | Drop this | Get this |
 |---|---|
@@ -42,7 +47,8 @@ grounded, and which parts need review — before you present it to anyone.
 
 Nothing here needs the pointer. Click a line to take its sentence, `⌥↑` to widen the mark
 to its paragraph, then press a letter: `S` statement, `N` number, `Q` quote, `B` build,
-`X` beats, `F` figure, `H` spotlight, `A` add to this scene, `V` voice-over.
+`X` beats, `F` figure, `H` spotlight, `A` add to this scene, `V` voice-over. `M` opens the
+animation gallery for whatever you are looking at.
 
 ---
 
@@ -78,6 +84,34 @@ of animated values, and it is imported by the live canvas, the static previews a
 exporter alike. Nothing inside the scene surface animates via CSS or a motion library.
 That single rule turns "preview matches export" from a QA problem into a type signature.
 
+**Every animation is one definition.** `src/render/motion.ts` holds the whole catalogue —
+twenty-one entrances and six sustained motions — each a pure function of progress. The
+storyboard's animated tiles run that function, the stage runs it, and the exporter runs
+it, so an animation cannot look one way while you are choosing it and another way once it
+is chosen. `tools/parity-shot.mjs` draws both renderings of the same frame side by side to
+prove it, and asserts the reduced-motion contract: with movement off, nothing travels.
+
+---
+
+## Animating it
+
+Marking a passage makes a scene; the ✦ **Animate** button on any storyboard card — or
+<kbd>M</kbd>, or the button beside the transport — opens the gallery. Every tile in it is
+your own scene, animating for real, so choosing is watching rather than guessing.
+
+Entrances are grouped by what they act on. Words and letters get **Cascade**, **Typeset**,
+**Scatter**, **Tumble**, **Open out**, **Ink bleed** and **Sweep**; pictures get **Iris**,
+**Wipe**, **Shutter**, **Develop**, **Crop in** and **Push**; the quiet workhorses —
+**Rise**, **Settle**, **Slide**, **Focus pull**, **Cut** — suit anything. The gallery leads
+with the ones built for whatever the scene is actually about, judged by what occupies the
+most of the frame.
+
+Three further controls sit under them. **While it stays on screen** adds sustained motion
+after the entrance has landed — a slow zoom that travels inside a figure's frame, a drift,
+a breath. **Choreography** hands out the delays so elements arrive in sequence rather than
+all at once. **Volume** takes the same move louder or quieter without changing its
+character. Every choice applies immediately and is a single undo away.
+
 ---
 
 ## Exports
@@ -107,7 +141,9 @@ real browser against `npm run preview`.
 
 | Script | What it checks |
 |---|---|
-| `tools/flow.mjs` | Landing → processing → setup → editor, with console errors surfaced |
+| `tools/flow.mjs` | Landing → processing → editor, arriving on the paper with an empty storyboard |
+| `tools/motion.mjs` | Making a scene, opening the animation gallery three ways, picking an entrance, watching the stage obey |
+| `tools/parity-shot.mjs` | Every entrance drawn twice — screen against export — plus the reduced-motion assertion (needs `npm run dev`) |
 | `tools/editor.mjs` | Marking a sentence, making a scene, the source thread, each disclosure level, integrity, export |
 | `tools/reader.mjs` | The text layer, highlighting, the marker bar, dragging a tool onto a sentence, cropping a figure, comparing two passages |
 | `tools/reader-small.mjs` | The reader at tablet and phone widths |
