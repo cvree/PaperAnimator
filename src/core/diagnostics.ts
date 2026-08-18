@@ -67,9 +67,18 @@ function probeWorkerRealm(timeoutMs = 2000): Promise<string> {
       url = URL.createObjectURL(
         new Blob(
           [
+            // Reports the realm as the browser ships it. Our own shims are
+            // installed in the pdf.js worker, not here, precisely so this
+            // answers "what does this browser have" rather than "what did we
+            // patch" — which is the question worth asking after a failure.
             'self.postMessage({' +
               'map: typeof Map.prototype.getOrInsertComputed === "function",' +
               'withResolvers: typeof Promise.withResolvers === "function",' +
+              'promiseTry: typeof Promise.try === "function",' +
+              'toHex: typeof Uint8Array.prototype.toHex === "function",' +
+              'toBase64: typeof Uint8Array.prototype.toBase64 === "function",' +
+              'fromBase64: typeof Uint8Array.fromBase64 === "function",' +
+              'float16: typeof Float16Array === "function",' +
               'offscreen: typeof OffscreenCanvas === "function"' +
               '});',
           ],
@@ -84,10 +93,14 @@ function probeWorkerRealm(timeoutMs = 2000): Promise<string> {
       };
       w.onmessage = (e: MessageEvent) => {
         clearTimeout(timer);
-        const d = e.data as { map: boolean; withResolvers: boolean; offscreen: boolean };
+        const d = e.data as Record<string, boolean>;
         done(
           `Map.getOrInsertComputed=${yn(d.map)} Promise.withResolvers=${yn(
             d.withResolvers,
+          )} Promise.try=${yn(d.promiseTry)} Uint8Array.toHex=${yn(
+            d.toHex,
+          )} .toBase64=${yn(d.toBase64)} .fromBase64=${yn(d.fromBase64)} Float16Array=${yn(
+            d.float16,
           )} OffscreenCanvas=${yn(d.offscreen)}`,
         );
       };
@@ -155,11 +168,9 @@ export async function collectDiagnostics(context: {
       'main thread',
       `Worker=${yn(caps.worker)} moduleWorker=${yn(caps.moduleWorker)} blobURL=${yn(
         caps.blobUrl,
-      )} canvas2d=${yn(canvasWorks())} Map.getOrInsertComputed=${yn(
-        typeof (Map.prototype as { getOrInsertComputed?: unknown }).getOrInsertComputed === 'function',
-      )} Promise.withResolvers=${yn(
-        typeof (Promise as { withResolvers?: unknown }).withResolvers === 'function',
-      )}`,
+      )} canvas2d=${yn(canvasWorks())} Float16Array=${yn(
+        typeof (globalThis as { Float16Array?: unknown }).Float16Array === 'function',
+      )} (other intrinsics here are post-shim, so see the worker realm row)`,
     ],
     ['worker realm', workerRealm],
   );
