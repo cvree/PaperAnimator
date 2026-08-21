@@ -30,13 +30,14 @@ interface Preset {
 }
 
 const PRESETS: Preset[] = [
-  { id: 'talk', name: 'Talk', detail: 'Video, captions and a transcript', formats: ['webm', 'srt', 'transcript'] },
+  { id: 'talk', name: 'Talk', detail: 'Video, captions and a transcript', formats: ['mp4', 'srt', 'transcript'] },
   { id: 'slides', name: 'Slides', detail: 'An editable deck and a PDF', formats: ['pptx', 'pdf'] },
   { id: 'stills', name: 'Stills', detail: 'One PNG per scene', formats: ['png'] },
-  { id: 'archive', name: 'Archive', detail: 'Everything, plus the project file', formats: ['webm', 'pptx', 'pdf', 'png', 'srt', 'vtt', 'transcript', 'project'] },
+  { id: 'archive', name: 'Archive', detail: 'Everything, plus the project file', formats: ['mp4', 'pptx', 'pdf', 'png', 'srt', 'vtt', 'transcript', 'project'] },
 ];
 
 const FORMAT_LABEL: Record<ExportFormat, string> = {
+  mp4: 'MP4 video',
   webm: 'WebM video',
   png: 'PNG slides',
   pptx: 'PowerPoint deck',
@@ -97,8 +98,11 @@ export function ExportSheet() {
 
         let result: ExportResult;
         switch (format) {
+          case 'mp4':
+            result = await exportVideo(project, options, 'mp4');
+            break;
           case 'webm':
-            result = await exportVideo(project, options);
+            result = await exportVideo(project, options, 'webm');
             break;
           case 'png':
             result = await exportSlides(project, options);
@@ -225,7 +229,7 @@ export function ExportSheet() {
           </summary>
           <div className="flex flex-wrap gap-2 border-t border-[var(--rule-hairline)] p-4">
             {(Object.keys(FORMAT_LABEL) as ExportFormat[]).map((f) => {
-              const disabled = f === 'webm' && !videoSupported();
+              const disabled = (f === 'mp4' || f === 'webm') && !videoSupported();
               const on = custom.has(f);
               return (
                 <button

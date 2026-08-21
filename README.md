@@ -120,7 +120,7 @@ Every format below is produced in the browser and opens in real software.
 
 | File | What it is |
 |---|---|
-| `.webm` | The talk as you watched it. Encoded through WebCodecs with the timestamp each frame represents, so the duration is the real one. |
+| `.mp4` | The talk as you watched it. H.264 encoded through WebCodecs with the timestamp each frame represents, so the duration is the real one. A browser that cannot write H.264 gets `.webm` instead, and the export says so. |
 | `.zip` | One PNG per scene at the chosen resolution. |
 | `.pptx` | An editable deck. Speaker notes carry the narration and its page citations. |
 | `.pdf` | Rendered pages plus an invisible text layer, so it is searchable and readable aloud, with a source appendix. |
@@ -197,7 +197,7 @@ instruments you drop onto what you marked.
 
 React 19 · TypeScript · Vite · Tailwind v4 over CSS custom properties · Zustand + Immer ·
 dnd-kit · Radix · GSAP for interface motion · pdf.js · pdf-lib · pptxgenjs · JSZip ·
-WebCodecs + webm-muxer · Playwright for the visual harnesses.
+WebCodecs + mp4-muxer / webm-muxer · Playwright for the visual harnesses.
 
 ---
 

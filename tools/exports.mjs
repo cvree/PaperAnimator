@@ -47,7 +47,7 @@ await page.waitForTimeout(300);
 await page.screenshot({ path: 'shots/28-export-formats.png', fullPage: true });
 
 const FORMATS = [
-  'WebM video',
+  'MP4 video',
   'PNG slides',
   'PowerPoint deck',
   'PDF',

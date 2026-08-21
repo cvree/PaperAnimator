@@ -313,7 +313,7 @@ export function Mark({ size = 20 }: { size?: number }) {
 }
 
 const EXPORT_FORMATS = [
-  { ext: 'webm', name: 'Video', what: 'The talk as you watched it, with the marker moving.' },
+  { ext: 'mp4', name: 'Video', what: 'The talk as you watched it, with the marker moving.' },
   { ext: 'zip', name: 'PNG slides', what: 'One image per scene, at the resolution you choose.' },
   { ext: 'pptx', name: 'PowerPoint', what: 'An editable deck. Speaker notes carry the sources.' },
   { ext: 'pdf', name: 'PDF', what: 'Searchable and readable aloud, with a source appendix.' },

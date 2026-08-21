@@ -15,6 +15,7 @@ import { formatCaptionTime, slugify } from '@/core/format';
  */
 
 export type ExportFormat =
+  | 'mp4'
   | 'webm'
   | 'png'
   | 'pptx'
@@ -50,10 +51,14 @@ export interface ExportOptions {
    Shared canvas setup
    ========================================================================== */
 
-function stageFor(project: Project, scale: number) {
+function stageFor(project: Project, scale: number, evenDimensions = false) {
   const dims = ASPECT_DIMS[project.settings.aspect];
-  const width = Math.round(dims.w * scale);
-  const height = Math.round(dims.h * scale);
+  let width = Math.round(dims.w * scale);
+  let height = Math.round(dims.h * scale);
+  if (evenDimensions) {
+    width -= width % 2;
+    height -= height % 2;
+  }
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -78,8 +83,71 @@ async function ensureFonts(): Promise<void> {
 }
 
 /* ============================================================================
-   Video — WebM, recorded from the canvas
+   Video — MP4 by default, WebM where a browser cannot write one
    ========================================================================== */
+
+export type VideoContainer = 'mp4' | 'webm';
+
+interface ContainerSpec {
+  mime: string;
+  label: string;
+  /** WebCodecs codec strings for a given stage, best first. */
+  codecs: (width: number, height: number, fps: number) => string[];
+  /** MediaRecorder types, best first. */
+  recorderMimes: string[];
+}
+
+/**
+ * MP4/H.264 is what a phone, a slide deck, a video editor and every social
+ * platform take without being asked twice, so it is what we write. WebM stays
+ * as the fallback for a browser that can encode video but not that.
+ */
+const CONTAINERS: Record<VideoContainer, ContainerSpec> = {
+  mp4: {
+    mime: 'video/mp4',
+    label: 'MP4',
+    codecs: avcCodecs,
+    recorderMimes: ['video/mp4;codecs=avc1', 'video/mp4'],
+  },
+  webm: {
+    mime: 'video/webm',
+    label: 'WebM',
+    codecs: () => ['vp09.00.10.08', 'vp8'],
+    recorderMimes: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'],
+  },
+};
+
+/**
+ * H.264 levels cap how many macroblocks a decoder must handle per frame and per
+ * second, and a codec string whose level is too small for the stage is refused.
+ * The level is worked out from the frame we are actually about to encode rather
+ * than hard-coded, so 1620p exports are not quietly rejected the way a fixed
+ * 1080p level would reject them.
+ */
+const AVC_LEVELS: { hex: string; maxMbs: number; maxMbsPerSecond: number }[] = [
+  { hex: '1e', maxMbs: 1620, maxMbsPerSecond: 40500 },
+  { hex: '1f', maxMbs: 3600, maxMbsPerSecond: 108000 },
+  { hex: '20', maxMbs: 5120, maxMbsPerSecond: 216000 },
+  { hex: '28', maxMbs: 8192, maxMbsPerSecond: 245760 },
+  { hex: '2a', maxMbs: 8704, maxMbsPerSecond: 522240 },
+  { hex: '32', maxMbs: 22080, maxMbsPerSecond: 589824 },
+  { hex: '33', maxMbs: 36864, maxMbsPerSecond: 983040 },
+  { hex: '34', maxMbs: 36864, maxMbsPerSecond: 2073600 },
+  { hex: '3c', maxMbs: 139264, maxMbsPerSecond: 4177920 },
+];
+
+function avcCodecs(width: number, height: number, fps: number): string[] {
+  const mbs = Math.ceil(width / 16) * Math.ceil(height / 16);
+  const level =
+    AVC_LEVELS.find((l) => mbs <= l.maxMbs && mbs * fps <= l.maxMbsPerSecond) ??
+    AVC_LEVELS[AVC_LEVELS.length - 1];
+
+  // High, then Main, then Constrained Baseline — the last of which is the
+  // profile a software-only encoder is most likely to have.
+  const profiles = ['6400', '4d00', '42e0'];
+  const levels = level.hex === '34' ? [level.hex] : [level.hex, '34'];
+  return levels.flatMap((hex) => profiles.map((p) => `avc1.${p}${hex}`));
+}
 
 export function videoSupported(): boolean {
   return webCodecsSupported() || mediaRecorderSupported();
@@ -90,31 +158,64 @@ function webCodecsSupported(): boolean {
 }
 
 function mediaRecorderSupported(): boolean {
-  return (
-    typeof MediaRecorder !== 'undefined' &&
-    (MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ||
-      MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ||
-      MediaRecorder.isTypeSupported('video/webm'))
-  );
+  return recorderMimeFor('mp4') !== null || recorderMimeFor('webm') !== null;
 }
 
-function pickMime(): string {
-  for (const m of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) {
-    if (MediaRecorder.isTypeSupported(m)) return m;
+function recorderMimeFor(container: VideoContainer): string | null {
+  if (typeof MediaRecorder === 'undefined') return null;
+  return CONTAINERS[container].recorderMimes.find((m) => MediaRecorder.isTypeSupported(m)) ?? null;
+}
+
+type EncodePlan =
+  | { via: 'webcodecs'; container: VideoContainer; codec: string }
+  | { via: 'recorder'; container: VideoContainer; mime: string };
+
+/**
+ * Asks the browser what it can actually encode, preferred container first.
+ * A file we cannot write is worse than a second-choice file that plays.
+ */
+async function planEncoding(
+  preferred: VideoContainer,
+  width: number,
+  height: number,
+  fps: number,
+): Promise<EncodePlan | null> {
+  const order: VideoContainer[] = preferred === 'mp4' ? ['mp4', 'webm'] : ['webm', 'mp4'];
+
+  if (webCodecsSupported()) {
+    for (const container of order) {
+      for (const codec of CONTAINERS[container].codecs(width, height, fps)) {
+        try {
+          const support = await VideoEncoder.isConfigSupported({ codec, width, height });
+          if (support.supported) return { via: 'webcodecs', container, codec };
+        } catch {
+          /* an unrecognised codec string rejects rather than reporting false */
+        }
+      }
+    }
   }
-  return 'video/webm';
+
+  for (const container of order) {
+    const mime = recorderMimeFor(container);
+    if (mime) return { via: 'recorder', container, mime };
+  }
+  return null;
 }
 
 export async function exportVideo(
   project: Project,
   options: ExportOptions,
+  preferred: VideoContainer = 'mp4',
 ): Promise<ExportResult> {
-  if (!videoSupported()) {
+  await ensureFonts();
+  // H.264 refuses odd dimensions, so the stage is rounded down to even pixels.
+  const { canvas, ctx, width, height } = stageFor(project, options.scale, true);
+
+  const plan = await planEncoding(preferred, width, height, options.fps);
+  if (!plan) {
     throw new Error('This browser cannot record video. Try the PNG slides or the slide deck.');
   }
 
-  await ensureFonts();
-  const { canvas, ctx, width, height } = stageFor(project, options.scale);
   const images = await loadImages(projectImageUrls(project));
   const total = projectDuration(project);
   const frameCount = Math.max(1, Math.ceil((total / 1000) * options.fps));
@@ -129,16 +230,68 @@ export async function exportVideo(
     });
   };
 
-  const blob = webCodecsSupported()
-    ? await encodeWithWebCodecs(canvas, paintAt, frameCount, width, height, options)
-    : await recordInRealTime(canvas, paintAt, frameCount, width, height, options);
+  const blob =
+    plan.via === 'webcodecs'
+      ? await encodeWithWebCodecs(plan, canvas, paintAt, frameCount, width, height, options)
+      : await recordInRealTime(plan, canvas, paintAt, frameCount, width, height, options);
+
+  const spec = CONTAINERS[plan.container];
+  const substituted = plan.container !== preferred;
 
   return {
-    format: 'webm',
-    name: `${slugify(project.title)}.webm`,
+    format: plan.container,
+    name: `${slugify(project.title)}.${plan.container}`,
     blob,
     bytes: blob.size,
-    detail: `${width}×${height} · ${options.fps} fps · ${(total / 1000).toFixed(1)}s`,
+    detail:
+      `${width}×${height} · ${options.fps} fps · ${(total / 1000).toFixed(1)}s` +
+      (substituted
+        ? ` · this browser cannot write ${CONTAINERS[preferred].label}, so this is ${spec.label}`
+        : ''),
+  };
+}
+
+interface MuxerHandle {
+  addVideoChunk: (chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata) => void;
+  finalize: () => void;
+  buffer: () => ArrayBuffer;
+}
+
+async function createMuxer(
+  container: VideoContainer,
+  codec: string,
+  width: number,
+  height: number,
+): Promise<MuxerHandle> {
+  if (container === 'mp4') {
+    const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
+    const target = new ArrayBufferTarget();
+    const muxer = new Muxer({
+      target,
+      video: { codec: 'avc', width, height },
+      // Metadata at the front is what lets a player report the duration and
+      // seek the moment the file opens, rather than after reading to the end.
+      fastStart: 'in-memory',
+      firstTimestampBehavior: 'offset',
+    });
+    return {
+      addVideoChunk: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      finalize: () => muxer.finalize(),
+      buffer: () => target.buffer,
+    };
+  }
+
+  const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({
+    target,
+    video: { codec: codec.startsWith('vp09') ? 'V_VP9' : 'V_VP8', width, height },
+    firstTimestampBehavior: 'offset',
+  });
+  return {
+    addVideoChunk: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    finalize: () => muxer.finalize(),
+    buffer: () => target.buffer,
   };
 }
 
@@ -153,6 +306,7 @@ export async function exportVideo(
  * allows rather than in real time.
  */
 async function encodeWithWebCodecs(
+  plan: Extract<EncodePlan, { via: 'webcodecs' }>,
   canvas: HTMLCanvasElement,
   paintAt: (i: number) => void,
   frameCount: number,
@@ -160,25 +314,7 @@ async function encodeWithWebCodecs(
   height: number,
   options: ExportOptions,
 ): Promise<Blob> {
-  const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
-  const codecs = ['vp09.00.10.08', 'vp8'] as const;
-
-  let codec: string | null = null;
-  for (const c of codecs) {
-    const support = await VideoEncoder.isConfigSupported({ codec: c, width, height });
-    if (support.supported) {
-      codec = c;
-      break;
-    }
-  }
-  if (!codec) return recordInRealTime(canvas, paintAt, frameCount, width, height, options);
-
-  const target = new ArrayBufferTarget();
-  const muxer = new Muxer({
-    target,
-    video: { codec: codec.startsWith('vp09') ? 'V_VP9' : 'V_VP8', width, height },
-    firstTimestampBehavior: 'offset',
-  });
+  const muxer = await createMuxer(plan.container, plan.codec, width, height);
 
   let failure: Error | null = null;
   const encoder = new VideoEncoder({
@@ -188,11 +324,14 @@ async function encodeWithWebCodecs(
     },
   });
   encoder.configure({
-    codec,
+    codec: plan.codec,
     width,
     height,
     bitrate: Math.round(width * height * options.fps * 0.12),
     framerate: options.fps,
+    // MP4 wants the length-prefixed form with the parameter sets in the
+    // container, which is what the muxer writes into the sample description.
+    ...(plan.container === 'mp4' ? { avc: { format: 'avc' as const } } : {}),
   });
 
   const frameDurationUs = Math.round(1_000_000 / options.fps);
@@ -231,7 +370,7 @@ async function encodeWithWebCodecs(
   muxer.finalize();
   if (failure) throw failure;
 
-  return new Blob([target.buffer as BlobPart], { type: 'video/webm' });
+  return new Blob([muxer.buffer() as BlobPart], { type: CONTAINERS[plan.container].mime });
 }
 
 function drainEncoder(encoder: VideoEncoder): Promise<void> {
@@ -250,6 +389,7 @@ function drainEncoder(encoder: VideoEncoder): Promise<void> {
  * long as the talk does — which is why it is the fallback.
  */
 async function recordInRealTime(
+  plan: Extract<EncodePlan, { via: 'recorder' }>,
   canvas: HTMLCanvasElement,
   paintAt: (i: number) => void,
   frameCount: number,
@@ -257,14 +397,11 @@ async function recordInRealTime(
   height: number,
   options: ExportOptions,
 ): Promise<Blob> {
-  if (!mediaRecorderSupported()) {
-    throw new Error('This browser cannot record video. Try the PNG slides or the slide deck.');
-  }
-
+  const type = CONTAINERS[plan.container].mime;
   const stream = canvas.captureStream(0);
   const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
   const recorder = new MediaRecorder(stream, {
-    mimeType: pickMime(),
+    mimeType: plan.mime,
     videoBitsPerSecond: Math.round(width * height * options.fps * 0.12),
   });
 
@@ -273,7 +410,7 @@ async function recordInRealTime(
     if (e.data.size) chunks.push(e.data);
   };
   const done = new Promise<Blob>((resolve) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+    recorder.onstop = () => resolve(new Blob(chunks, { type }));
   });
 
   recorder.start();
