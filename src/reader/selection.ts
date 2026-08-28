@@ -518,6 +518,67 @@ export function clearSelection(): void {
   window.getSelection()?.removeAllRanges();
 }
 
+/**
+ * The live selection, kept so a mark the reader changed can be put back.
+ *
+ * A cloned range rather than the quads it covers: putting a mark back has to
+ * restore it to the character, and quads only ever restore it to the word.
+ */
+export function captureSelection(root: HTMLElement | null): Range | null {
+  if (!root || typeof window === 'undefined') return null;
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return null;
+  return range.cloneRange();
+}
+
+/** Fails quietly when the page it belonged to has since dropped its text. */
+export function restoreSelection(range: Range | null): boolean {
+  if (!range || typeof window === 'undefined') return false;
+  if (!range.startContainer.isConnected || !range.endContainer.isConnected) return false;
+  const sel = window.getSelection();
+  if (!sel) return false;
+  try {
+    sel.removeAllRanges();
+    sel.addRange(range.cloneRange());
+  } catch {
+    return false;
+  }
+  return !sel.isCollapsed;
+}
+
+/**
+ * Stretch the mark to the character under the pointer, keeping its anchor.
+ *
+ * What ⇧-click does in every text field there has ever been. The reader's own
+ * ⇧-click takes the whole sentence it lands in, which is the right answer while
+ * the reader is helping and the wrong one once someone is marking by hand: at
+ * that point the pointer is being aimed, and an aimed pointer means the word it
+ * is on.
+ */
+export function extendSelectionToPoint(
+  root: HTMLElement | null,
+  clientX: number,
+  clientY: number,
+): boolean {
+  if (!root || typeof window === 'undefined') return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+  if (!sel.anchorNode || !root.contains(sel.anchorNode)) return false;
+
+  const at = caretAt(clientX, clientY);
+  if (!at || !root.contains(at.node)) return false;
+  if (!at.node.parentElement?.closest(TEXT_LAYER_SELECTOR)) return false;
+
+  try {
+    sel.extend(at.node, at.offset);
+  } catch {
+    return false;
+  }
+  return !sel.isCollapsed;
+}
+
 function runQuad(el: HTMLElement): Quad | null {
   const raw = el.dataset.quad;
   if (!raw) return null;
@@ -825,13 +886,23 @@ export function extendMark(
  * Nobody means to mark “the resul”. The browser gives you the character your
  * pointer stopped on; this gives you the word it was inside, which is what the
  * quote, the narration and the citation all end up carrying.
+ *
+ * `keepInsideWord` is set once the reader knows the mark is being made by hand,
+ * and holds back the one case where rounding is wrong: a mark made entirely
+ * inside a printed run — “hydro”, a units suffix, one half of a hyphenation —
+ * is left at the characters it was dragged to. Nobody lands inside a word twice
+ * by accident.
  */
-export function snapSelectionToWords(root: HTMLElement | null): void {
+export function snapSelectionToWords(
+  root: HTMLElement | null,
+  options: { keepInsideWord?: boolean } = {},
+): void {
   if (!root || typeof window === 'undefined') return;
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return;
+  if (options.keepInsideWord && insideOneRun(range)) return;
 
   const start = wordEdge(range.startContainer, range.startOffset, -1);
   const end = wordEdge(range.endContainer, range.endOffset, 1);
@@ -847,6 +918,13 @@ export function snapSelectionToWords(root: HTMLElement | null): void {
   if (next.collapsed) return;
   sel.removeAllRanges();
   sel.addRange(next);
+}
+
+/** Both ends in the same printed run, with no space between them. */
+function insideOneRun(range: Range): boolean {
+  const node = range.startContainer;
+  if (node !== range.endContainer || node.nodeType !== Node.TEXT_NODE) return false;
+  return !/\s/.test((node as Text).data.slice(range.startOffset, range.endOffset));
 }
 
 interface FlatText {
@@ -904,14 +982,22 @@ function locate(flat: FlatText, at: number): { node: Text; offset: number } | nu
   return null;
 }
 
+/** How generous the round-up is: two words is a slip, three is a decision. */
+const ROUND_UP_WORDS = 2;
+
 /**
- * The mark a dragged selection was reaching for.
+ * The last word or two a dragged mark stopped short of — and nothing more.
  *
- * Dragging through two sentences and stopping halfway through the second means
- * both sentences — a half sentence is never what someone is after when they
- * crossed into it. Stopping inside a *single* sentence is left exactly as
- * marked, because a phrase inside a sentence is a deliberate act: it is what a
- * spotlight is made of. Nearly all of one sentence rounds up to all of it.
+ * A drag that ends a hair before the full stop was aiming at the full stop, and
+ * carrying "the effect was" into a scene when the person marked "the effect was
+ * significant" helps nobody. Everything past that is theirs: a drag that stops
+ * halfway through a sentence stops halfway through a sentence, because someone
+ * who dragged that far and let go there was saying where to stop. The reader
+ * finishes a word; it does not finish a thought.
+ *
+ * Returns null unless every sentence the mark touches is within
+ * `ROUND_UP_WORDS` of being whole — so the round-up can add a word, never a
+ * line, and never a sentence nobody dragged into.
  */
 export function completeSelection(
   paper: Paper,
@@ -929,14 +1015,46 @@ export function completeSelection(
   );
   if (!touched.length) return null;
 
-  const whole = touched.map((e) => e.sentence.text).join(' ');
-  if (passage.text.length >= whole.length - 2) return null;
-
-  if (touched.length === 1) {
-    const ratio = passage.text.length / Math.max(1, touched[0].sentence.text.length);
-    if (ratio < 0.85) return null;
+  // Counted in words rather than in area, because that is the unit the shortfall
+  // is felt in: half of a four-word sentence is a slip and half of a forty-word
+  // one is a decision, and no fraction tells those apart.
+  let missing = 0;
+  for (const entry of touched) {
+    missing += (1 - markedFraction(entry.quads, span.quads)) * words(entry.sentence.text);
+    if (missing > ROUND_UP_WORDS) return null;
   }
+  // Already whole: there is nothing to round up to.
+  if (missing < 0.35) return null;
 
   const quads = touched.flatMap((e) => e.quads);
   return quads.length ? { page: span.page, quads } : null;
+}
+
+/**
+ * How much of a sentence a mark covers, measured along the line.
+ *
+ * Width, not area: a selection's client rects are as tall as the browser's own
+ * line box and a sentence's quads are as tall as the printed glyphs, so the two
+ * never agree vertically — and comparing areas would report a fully marked line
+ * as four fifths marked. Horizontally they agree to the character.
+ */
+function markedFraction(target: Quad[], mark: Quad[]): number {
+  let total = 0;
+  let hit = 0;
+  for (const q of target) {
+    if (q.w <= 0) continue;
+    total += q.w;
+    let across = 0;
+    for (const s of mark) {
+      const down = Math.min(q.y + q.h, s.y + s.h) - Math.max(q.y, s.y);
+      if (down < Math.min(q.h, s.h) * 0.45) continue;
+      across += Math.max(0, Math.min(q.x + q.w, s.x + s.w) - Math.max(q.x, s.x));
+    }
+    hit += Math.min(q.w, across);
+  }
+  return total > 0 ? hit / total : 0;
+}
+
+function words(text: string): number {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
 }

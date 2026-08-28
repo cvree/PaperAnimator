@@ -83,7 +83,7 @@ step where a source gets attached, and therefore no later step that can be skipp
 
 | Gesture | Marks |
 |---|---|
-| Drag across text | Exactly those words, to the character |
+| Drag across text | Exactly those words, to the character — rounded out to whole ones, and by at most two of them |
 | Click a line | The whole sentence it belongs to, or the printed line when it is a title, a heading or a caption |
 | `⌥↑` / `⌥↓` | Widens to sentence → paragraph → section, or narrows back |
 | `⌥`-drag, or the Figure tool | A rectangular region, cropped from the page at full resolution |
@@ -119,12 +119,39 @@ hover, a click takes it, and clicking again in the same place widens the mark a 
 time — sentence, paragraph, section — so a double click lands on the whole sentence
 rather than on the single word a browser would have given. A click on a figure or a table
 takes the whole of it, with no crop to arm first. `⇧`-click stretches the mark to where it
-lands, in either direction.
+lands, in either direction — to the sentence it lands in while the reader is helping, and
+to the character once it has stepped back.
+
+### …and stops assuming
 
 A dragged selection is tidied when it is released: the ends round out to whole words, and
-a drag that crossed into a second sentence takes both sentences whole. A drag that stayed
-inside one sentence is left exactly as made — a phrase inside a sentence is deliberate,
-and is what a spotlight is made of.
+a drag that stopped within **two words** of finishing the sentences it covers takes those
+words. That is the whole of it. Everything past two words is a decision — a drag that
+stopped halfway through a sentence stopped halfway through a sentence — and the reader
+finishes a word rather than a thought.
+
+Even that much is offered rather than imposed. A rounded mark says so, with **Keep what I
+marked** beside it, and taking that puts the mark back to the character it was dragged to.
+
+The reader also reads the *gesture*, not the words. A pointer that slowed down, came back
+on itself to fix an end, or stopped before it let go was being aimed, and an aimed mark is
+never rounded — no threshold in the paragraph above applies to it. The numbers live in
+`src/reader/intent.ts`; nothing in them depends on the paper.
+
+Two aimed marks, or one mark redrawn by hand over a mark that was just rounded, and the
+reader **steps back for the session**:
+
+| | While it is helping | Once it has stepped back |
+|---|---|---|
+| A drag that stopped short | Rounded out by up to two words, offered back | Kept exactly |
+| A mark inside one word | Rounded out to the word | Kept exactly |
+| A short, slow drag with words under it | Read as a click, takes the sentence | Read as a mark |
+| `⇧`-click | Stretches to the sentence it lands in | Stretches to the character |
+| The hover wash | Full strength | Barely there |
+
+Nothing is taken away by that: a click still takes the sentence, `⌥↑` still climbs the
+ladder, and the marker bar still widens. Only the guessing stops. It is offered back once,
+on the toast that announces it, and asking for it back is remembered too.
 
 ### The preview cannot lie
 

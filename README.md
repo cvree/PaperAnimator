@@ -19,8 +19,11 @@ you would rather begin from a draft, the empty storyboard offers to make one fro
 whole paper; it stays a thing you asked for.)
 
 Click a sentence to take the whole of it — click again to widen to the paragraph, or drag
-across the words and the mark rounds out to whole ones. A bar arrives on whatever you
-marked. Then either click a tool or pick one up and drop it on the words:
+across the words and the mark rounds out to whole ones. It rounds out by a word, never by
+a line: a drag that stopped a word short of a full stop takes the word and offers it back,
+and a drag that stopped anywhere else stops there. Mark a few by hand and the reader
+notices, and stops rounding at all. A bar arrives on whatever you marked. Then either
+click a tool or pick one up and drop it on the words:
 
 | Drop this | Get this |
 |---|---|
@@ -147,6 +150,7 @@ real browser against `npm run preview`.
 | `tools/parity-shot.mjs` | Every entrance drawn twice — screen against export — plus the reduced-motion assertion (needs `npm run dev`) |
 | `tools/editor.mjs` | Marking a sentence, making a scene, the source thread, each disclosure level, integrity, export |
 | `tools/reader.mjs` | The text layer, highlighting, the marker bar, dragging a tool onto a sentence, cropping a figure, comparing two passages |
+| `tools/marking.mjs` | What a drag marks: what is rounded out, what is left alone, and the reader stepping back once it is being done by hand |
 | `tools/reader-small.mjs` | The reader at tablet and phone widths |
 | `tools/demos.mjs` | The three landing-page interactions |
 | `tools/exports.mjs` | Runs every export for real and reports the bytes and file types |
