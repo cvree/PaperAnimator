@@ -112,6 +112,20 @@ The leading button on the marker bar is whatever the passage most wants to be: a
 becomes a number, a figure becomes a figure, a phrase inside a sentence becomes a
 spotlight. One click for the obvious thing; a drag for the deliberate one.
 
+### Marking assumes
+
+Nothing about marking is a caret. The sentence under the pointer is washed in as you
+hover, a click takes it, and clicking again in the same place widens the mark a rung at a
+time — sentence, paragraph, section — so a double click lands on the whole sentence
+rather than on the single word a browser would have given. A click on a figure or a table
+takes the whole of it, with no crop to arm first. `⇧`-click stretches the mark to where it
+lands, in either direction.
+
+A dragged selection is tidied when it is released: the ends round out to whole words, and
+a drag that crossed into a second sentence takes both sentences whole. A drag that stayed
+inside one sentence is left exactly as made — a phrase inside a sentence is deliberate,
+and is what a spotlight is made of.
+
 ### The preview cannot lie
 
 Each instrument's `plan()` is pure: it returns the scenes it *would* insert without
@@ -255,7 +269,8 @@ position {n}"` or `"movement cancelled"`.
 `⌘D` duplicate · `⌘G` group · `⌘⇧K` split at playhead · `⌫` delete ·
 `⌘L` lock · `⌘⇧H` hide · `⌘[` `⌘]` z-order · `⌥⌘←→` align
 
-**Reader** — click a line to take its sentence · `⌥↑`/`⌥↓` widen/narrow the mark ·
+**Reader** — click to take the sentence · click again to widen · `⇧`-click to stretch ·
+`⌥↑`/`⌥↓` widen/narrow the mark ·
 `⇧K` keep the passage for a comparison · `Esc` clear the mark ·
 `S N Q B X F T` make a scene · `A H V` add to the current scene · `C` side by side ·
 `⌘`-scroll to zoom

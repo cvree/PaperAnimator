@@ -40,6 +40,10 @@ interface ReaderState {
   lit: { page: number; quads: Quad[] }[];
   /** The scene a just-made mark belongs to, for the after-drop flourish. */
   flash: { page: number; quads: Quad[]; at: number } | null;
+  /** A mark that has just landed, so the page can acknowledge it. */
+  pulse: { page: number; quads: Quad[]; at: number } | null;
+  /** What a click would take, shown before it is taken. */
+  hover: { page: number; quads: Quad[]; region: boolean } | null;
   /** Armed by the Crop tool: the next drag draws a box instead of marking text. */
   cropArmed: boolean;
 
@@ -52,6 +56,8 @@ interface ReaderState {
   endDrag: () => void;
   setLit: (lit: { page: number; quads: Quad[] }[]) => void;
   setFlash: (f: { page: number; quads: Quad[] } | null) => void;
+  setPulse: (p: { page: number; quads: Quad[] } | null) => void;
+  setHover: (h: { page: number; quads: Quad[]; region: boolean } | null) => void;
   setCropArmed: (b: boolean) => void;
   reset: () => void;
 }
@@ -65,10 +71,12 @@ export const useReader = create<ReaderState>((set, get) => ({
   drag: null,
   lit: [],
   flash: null,
+  pulse: null,
+  hover: null,
   cropArmed: false,
 
   setZoom: (zoom) => set({ zoom: Math.max(0.4, Math.min(2.4, zoom)) }),
-  setPassage: (passage) => set({ passage }),
+  setPassage: (passage) => set({ passage, hover: null }),
   keep: (p) =>
     set((s) => ({ tray: [...s.tray.filter((t) => t.id !== p.id), p].slice(-4) })),
   clearTray: () => set({ tray: [] }),
@@ -84,10 +92,21 @@ export const useReader = create<ReaderState>((set, get) => ({
 
   setLit: (lit) => set({ lit }),
   setFlash: (f) => set({ flash: f ? { ...f, at: performance.now() } : null }),
+  setPulse: (p) => set({ pulse: p ? { ...p, at: performance.now() } : null }),
+  setHover: (hover) => set({ hover }),
   setCropArmed: (cropArmed) => set({ cropArmed }),
 
   reset: () =>
-    set({ passage: null, tray: [], drag: null, lit: [], flash: null, cropArmed: false }),
+    set({
+      passage: null,
+      tray: [],
+      drag: null,
+      lit: [],
+      flash: null,
+      pulse: null,
+      hover: null,
+      cropArmed: false,
+    }),
 }));
 
 function sameTarget(a: DragTarget, b: DragTarget): boolean {

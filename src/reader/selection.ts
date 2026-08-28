@@ -78,7 +78,7 @@ export function readSelection(root: HTMLElement | null, paper: Paper): Passage |
 
     const sub = clipRange(range, layer);
     if (!sub) continue;
-    const text = tidy(sub.toString());
+    const text = tidy(rangeText(sub, layer));
     const quads = quadsOf(sub, layer);
     if (!text && !quads.length) continue;
     spans.push({ page, quads, text });
@@ -109,6 +109,39 @@ function clipRange(range: Range, layer: HTMLElement): Range | null {
     return null;
   }
   return sub.collapsed ? null : sub;
+}
+
+/**
+ * The words a range covers, assembled from the runs themselves.
+ *
+ * The layer sets `font-size: 0` so that the whitespace between absolutely
+ * positioned runs takes no room, and a browser serialising the selection drops
+ * that whitespace with it — which is how “how much load” came back as
+ * “how muchload”. Each run carries the space or line break that belongs after
+ * it, so the passage is rebuilt from those instead of from the rendered string.
+ */
+function rangeText(range: Range, layer: HTMLElement): string {
+  let out = '';
+  for (const el of layer.querySelectorAll<HTMLElement>('[data-run]')) {
+    if (!range.intersectsNode(el)) continue;
+    const piece = document.createRange();
+    piece.selectNodeContents(el);
+    try {
+      if (piece.compareBoundaryPoints(Range.START_TO_START, range) < 0) {
+        piece.setStart(range.startContainer, range.startOffset);
+      }
+      if (piece.compareBoundaryPoints(Range.END_TO_END, range) > 0) {
+        piece.setEnd(range.endContainer, range.endOffset);
+      }
+    } catch {
+      continue;
+    }
+    const text = piece.toString();
+    if (!text) continue;
+    const after = el.dataset.after;
+    out += text + (after === 'n' ? '\n' : after === 's' ? ' ' : '');
+  }
+  return out;
 }
 
 function quadsOf(range: Range, layer: HTMLElement): Quad[] {
@@ -357,25 +390,127 @@ export function selectQuads(root: HTMLElement | null, page: number, quads: Quad[
   if (!root || !quads.length || typeof window === 'undefined') return false;
   const layer = root.querySelector<HTMLElement>(`[data-textlayer][data-page="${page}"]`);
   if (!layer) return false;
+  const box = layer.getBoundingClientRect();
+  if (box.width < 1) return false;
 
-  const runs = Array.from(layer.querySelectorAll<HTMLElement>('[data-run]'));
-  const inside = runs.filter((el) => {
-    const q = runQuad(el);
-    return q ? quads.some((target) => coverage(q, target) > 0.45) : false;
-  });
-  if (!inside.length) return false;
+  // A run is on the line if their vertical extents mostly agree, and part of the
+  // mark if it also overlaps it horizontally. Both ends are then trimmed to
+  // where the mark actually starts and stops — a printed line is often a single
+  // run holding the end of one sentence and the start of the next, and taking
+  // the whole run would highlight, cite and speak words nobody marked.
+  const hits: { el: HTMLElement; run: Quad; target: Quad }[] = [];
+  for (const el of layer.querySelectorAll<HTMLElement>('[data-run]')) {
+    const run = runQuad(el);
+    if (!run) continue;
+    let target: Quad | null = null;
+    let best = 0;
+    for (const q of quads) {
+      const down = Math.min(run.y + run.h, q.y + q.h) - Math.max(run.y, q.y);
+      if (down < run.h * 0.5) continue;
+      const across = Math.min(run.x + run.w, q.x + q.w) - Math.max(run.x, q.x);
+      const share = run.w > 0 ? across / run.w : 0;
+      if (share > best) {
+        best = share;
+        target = q;
+      }
+    }
+    if (target && best > 0.25) hits.push({ el, run, target });
+  }
+  if (!hits.length) return false;
 
-  const first = inside[0];
-  const last = inside[inside.length - 1];
+  const first = hits[0];
+  const last = hits[hits.length - 1];
   const range = document.createRange();
-  range.setStartBefore(first.firstChild ?? first);
-  range.setEndAfter(last.lastChild ?? last);
+  range.setStartBefore(first.el.firstChild ?? first.el);
+  range.setEndAfter(last.el.lastChild ?? last.el);
+
+  const wide = range.cloneRange();
+  trimTo(range, first, box, 'start');
+  trimTo(range, last, box, 'end');
+  const use = range.collapsed ? wide : range;
 
   const sel = window.getSelection();
   if (!sel) return false;
   sel.removeAllRanges();
-  sel.addRange(range);
+  sel.addRange(use);
   return true;
+}
+
+/**
+ * Move one end of the range to the character the mark actually begins or ends
+ * on, asking the browser where that point falls in its own text.
+ *
+ * When the point cannot be resolved — the page is scrolled out of view, or
+ * something is over it — the end is left on the run boundary, which is where it
+ * already was.
+ */
+function trimTo(
+  range: Range,
+  hit: { el: HTMLElement; run: Quad; target: Quad },
+  box: DOMRect,
+  end: 'start' | 'end',
+): void {
+  const edge =
+    end === 'start' ? hit.target.x : Math.min(hit.target.x + hit.target.w, hit.run.x + hit.run.w);
+  const slack = hit.run.w * 0.04;
+  if (end === 'start' ? edge <= hit.run.x + slack : edge >= hit.run.x + hit.run.w - slack) return;
+
+  const x = box.left + edge * box.width + (end === 'start' ? 0.5 : -0.5);
+  const y = box.top + (hit.run.y + hit.run.h / 2) * box.height;
+  const found = caretAt(x, y);
+  if (!found || !hit.el.contains(found.node)) return;
+  const at = wholeWord(found, end);
+  try {
+    if (end === 'start') range.setStart(at.node, at.offset);
+    else range.setEnd(at.node, at.offset);
+  } catch {
+    /* the point landed outside the range's own container; leave the end alone */
+  }
+}
+
+/**
+ * Nudge a trimmed end onto a word boundary.
+ *
+ * The run is laid out in the browser's own font and then scaled to sit on the
+ * printed glyphs, so the character the point resolves to can be a character out
+ * either way. A mark that begins at “oaches” is unmistakably wrong; one that
+ * begins at “Coaches” is unmistakably right, and there is no third option — so
+ * the end is moved to whichever boundary of the word it landed in.
+ */
+function wholeWord(
+  at: { node: Node; offset: number },
+  end: 'start' | 'end',
+): { node: Node; offset: number } {
+  if (at.node.nodeType !== Node.TEXT_NODE) return at;
+  const data = (at.node as Text).data;
+  let i = at.offset;
+  if (end === 'start') {
+    if (isWord(data[i])) while (i > 0 && isWord(data[i - 1])) i--;
+    else while (i < data.length && !isWord(data[i])) i++;
+  } else if (isWord(data[i - 1])) {
+    while (i < data.length && isWord(data[i])) i++;
+  } else {
+    while (i > 0 && !isWord(data[i - 1])) i--;
+  }
+  return { node: at.node, offset: i };
+}
+
+/** WebKit only ever shipped the older spelling of this. */
+type LegacyCaretDocument = {
+  caretRangeFromPoint?: (x: number, y: number) => Range | null;
+};
+
+function caretAt(x: number, y: number): { node: Node; offset: number } | null {
+  if (typeof document.caretPositionFromPoint === 'function') {
+    const pos = document.caretPositionFromPoint(x, y);
+    if (pos) return { node: pos.offsetNode, offset: pos.offset };
+  }
+  const legacy = document as unknown as LegacyCaretDocument;
+  if (typeof legacy.caretRangeFromPoint === 'function') {
+    const r = legacy.caretRangeFromPoint(x, y);
+    if (r) return { node: r.startContainer, offset: r.startOffset };
+  }
+  return null;
 }
 
 export function clearSelection(): void {
@@ -493,4 +628,315 @@ export function shrink(paper: Paper, passage: Passage): { page: number; quads: Q
     }
   }
   return { page: first.ref.page, quads: first.ref.quads };
+}
+
+/* ============================================================================
+   What a click means — the mark ladder
+   ========================================================================== */
+
+/**
+ * Clicking is the fast path, so a click is never a caret: it takes something.
+ *
+ * One click takes the sentence under the pointer. Clicking again in the same
+ * place widens the mark — sentence, paragraph, section — so the whole ladder is
+ * reachable without learning a shortcut, and a double click always lands on the
+ * whole sentence rather than the single word a browser would have given you.
+ */
+
+export type MarkKind =
+  | 'sentence'
+  | 'line'
+  | 'block'
+  | 'paragraph'
+  | 'section'
+  | 'figure'
+  | 'table';
+
+export interface MarkTarget {
+  page: number;
+  quads: Quad[];
+  kind: MarkKind;
+  /** The words the mark covers, for the pages whose text has no runs to select. */
+  text: string;
+  /** Set when the target is a figure or a table rather than words. */
+  region: PageHit['region'];
+}
+
+/** `clicks` is 1 for a single click, 2 for a double click, and so on. */
+export function targetForClick(
+  paper: Paper,
+  page: number,
+  x: number,
+  y: number,
+  clicks: number,
+): MarkTarget | null {
+  const hit = hitPage(paper, page, x, y);
+  const index = pageIndex(paper, page);
+  const rungs: MarkTarget[] = [];
+
+  if (hit.sentence && hit.sentenceQuads.length) {
+    rungs.push({
+      page,
+      quads: hit.sentenceQuads,
+      kind: 'sentence',
+      text: hit.sentence.text,
+      region: null,
+    });
+
+    const home = index.paragraphs.find((p) =>
+      p.paragraph.sentences.some((s) => s.id === hit.sentence!.id),
+    );
+    if (home) {
+      const para = onPage(home.paragraph.sentences, page);
+      if (para.quads.length > hit.sentenceQuads.length) {
+        rungs.push({ page, ...para, kind: 'paragraph', region: null });
+      }
+      const section = onPage(
+        home.section.paragraphs.flatMap((p) => p.sentences),
+        page,
+      );
+      if (section.quads.length > (para.quads.length || hit.sentenceQuads.length)) {
+        rungs.push({ page, ...section, kind: 'section', region: null });
+      }
+    }
+  } else if (hit.line && !hit.region) {
+    // Inside a figure or a table, the printed lines are axis labels and cells —
+    // never what someone clicking a chart meant to take. Everywhere else they
+    // are titles, headings and captions, and are exactly what they meant.
+    rungs.push({ page, quads: [hit.line.quad], kind: 'line', text: hit.line.text, region: null });
+    const block = lineBlock(paper, page, hit.line.quad);
+    if (block.length > 1) {
+      rungs.push({
+        page,
+        quads: block.map((l) => l.quad),
+        kind: 'block',
+        text: tidy(block.map((l) => l.text).join('\n')),
+        region: null,
+      });
+    }
+  }
+
+  // A figure or a table is the last rung, and the only one when the pointer is
+  // over artwork rather than words — so a chart is marked by clicking it.
+  if (hit.region) {
+    rungs.push({
+      page,
+      quads: [hit.region.bounds],
+      kind: hit.region.kind,
+      text: hit.region.label,
+      region: hit.region,
+    });
+  }
+
+  if (!rungs.length) return null;
+  // One click and two clicks both take the first rung: a double click has to
+  // land on the whole sentence, not on the word a browser would have picked.
+  return rungs[Math.max(0, Math.min(rungs.length - 1, clicks - 2))];
+}
+
+function onPage(sentences: Sentence[], page: number): { quads: Quad[]; text: string } {
+  const here = sentences.filter((s) => s.ref.page === page && s.ref.quads.length);
+  return {
+    quads: here.flatMap((s) => s.ref.quads),
+    text: tidy(here.map((s) => s.text).join(' ')),
+  };
+}
+
+/**
+ * The printed lines around a line: a two-line title, a wrapped caption.
+ *
+ * Titles and captions are not paragraphs, so they have no rung of their own to
+ * grow into — this gives them one, by walking outwards while the next line sits
+ * directly under the last at the same size and roughly the same width.
+ */
+function lineBlock(paper: Paper, page: number, seed: Quad): { quad: Quad; text: string }[] {
+  const source = paper.pages.find((p) => p.number === page);
+  if (!source) return [];
+  const lines = pageText(source)
+    .lines.map((l) => ({ quad: l.quad, text: l.text }))
+    .sort((a, b) => a.quad.y - b.quad.y);
+  const at = lines.findIndex(
+    (l) => Math.abs(l.quad.y - seed.y) < 0.003 && Math.abs(l.quad.x - seed.x) < 0.02,
+  );
+  if (at < 0) return [];
+
+  const kin = (above: Quad, below: Quad) => {
+    const gap = below.y - (above.y + above.h);
+    if (gap < -above.h * 0.5 || gap > above.h * 0.85) return false;
+    if (Math.abs(above.h - below.h) > Math.max(above.h, below.h) * 0.34) return false;
+    const overlap =
+      Math.min(above.x + above.w, below.x + below.w) - Math.max(above.x, below.x);
+    return overlap > Math.min(above.w, below.w) * 0.4;
+  };
+
+  const out = [lines[at]];
+  for (let i = at + 1; i < lines.length && kin(out[out.length - 1].quad, lines[i].quad); i++) {
+    out.push(lines[i]);
+  }
+  for (let i = at - 1; i >= 0 && kin(lines[i].quad, out[0].quad); i--) out.unshift(lines[i]);
+  return out;
+}
+
+/**
+ * Widen the mark to the sentence the pointer is on, keeping where it started.
+ *
+ * ⇧-click is how a mark is stretched with the pointer, in either direction —
+ * the same gesture every text editor has, so nobody has to be told about it.
+ */
+export function extendMark(
+  paper: Paper,
+  passage: Passage,
+  page: number,
+  x: number,
+  y: number,
+): { page: number; quads: Quad[] } | null {
+  const index = pageIndex(paper, page);
+  if (!index.sentences.length) return null;
+
+  const hit = hitPage(paper, page, x, y);
+  const to = hit.sentence
+    ? index.sentences.findIndex((e) => e.sentence.id === hit.sentence!.id)
+    : -1;
+  if (to < 0) return null;
+
+  const marked = new Set(passage.sentences.map((s) => s.id));
+  let first = -1;
+  let last = -1;
+  index.sentences.forEach((e, i) => {
+    if (!marked.has(e.sentence.id)) return;
+    if (first < 0) first = i;
+    last = i;
+  });
+  if (first < 0) return { page, quads: index.sentences[to].quads };
+
+  const lo = Math.min(first, to);
+  const hi = Math.max(last, to);
+  const quads = index.sentences.slice(lo, hi + 1).flatMap((e) => e.quads);
+  return quads.length ? { page, quads } : null;
+}
+
+/* ============================================================================
+   Tidying what was dragged
+   ========================================================================== */
+
+/**
+ * Round a dragged selection out to whole words.
+ *
+ * Nobody means to mark “the resul”. The browser gives you the character your
+ * pointer stopped on; this gives you the word it was inside, which is what the
+ * quote, the narration and the citation all end up carrying.
+ */
+export function snapSelectionToWords(root: HTMLElement | null): void {
+  if (!root || typeof window === 'undefined') return;
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return;
+
+  const start = wordEdge(range.startContainer, range.startOffset, -1);
+  const end = wordEdge(range.endContainer, range.endOffset, 1);
+  if (!start && !end) return;
+
+  const next = range.cloneRange();
+  try {
+    if (start) next.setStart(start.node, start.offset);
+    if (end) next.setEnd(end.node, end.offset);
+  } catch {
+    return;
+  }
+  if (next.collapsed) return;
+  sel.removeAllRanges();
+  sel.addRange(next);
+}
+
+interface FlatText {
+  text: string;
+  nodes: { node: Text; start: number }[];
+}
+
+function flatten(layer: HTMLElement): FlatText {
+  const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+  const nodes: { node: Text; start: number }[] = [];
+  let text = '';
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const node = n as Text;
+    nodes.push({ node, start: text.length });
+    text += node.data;
+  }
+  return { text, nodes };
+}
+
+function isWord(ch: string | undefined): boolean {
+  return !!ch && !/\s/.test(ch);
+}
+
+/** Only moves when the boundary is *inside* a word; otherwise it is left alone. */
+function wordEdge(
+  container: Node,
+  offset: number,
+  direction: -1 | 1,
+): { node: Text; offset: number } | null {
+  if (container.nodeType !== Node.TEXT_NODE) return null;
+  const layer = container.parentElement?.closest<HTMLElement>(TEXT_LAYER_SELECTOR);
+  if (!layer) return null;
+
+  const flat = flatten(layer);
+  const entry = flat.nodes.find((n) => n.node === container);
+  if (!entry) return null;
+  let at = entry.start + offset;
+
+  if (direction < 0) {
+    if (!isWord(flat.text[at]) || !isWord(flat.text[at - 1])) return null;
+    while (at > 0 && isWord(flat.text[at - 1])) at--;
+  } else {
+    if (!isWord(flat.text[at - 1]) || !isWord(flat.text[at])) return null;
+    while (at < flat.text.length && isWord(flat.text[at])) at++;
+  }
+  return locate(flat, at);
+}
+
+function locate(flat: FlatText, at: number): { node: Text; offset: number } | null {
+  for (const entry of flat.nodes) {
+    if (at >= entry.start && at <= entry.start + entry.node.data.length) {
+      return { node: entry.node, offset: at - entry.start };
+    }
+  }
+  return null;
+}
+
+/**
+ * The mark a dragged selection was reaching for.
+ *
+ * Dragging through two sentences and stopping halfway through the second means
+ * both sentences — a half sentence is never what someone is after when they
+ * crossed into it. Stopping inside a *single* sentence is left exactly as
+ * marked, because a phrase inside a sentence is a deliberate act: it is what a
+ * spotlight is made of. Nearly all of one sentence rounds up to all of it.
+ */
+export function completeSelection(
+  paper: Paper,
+  passage: Passage,
+): { page: number; quads: Quad[] } | null {
+  if (passage.region || passage.spans.length !== 1) return null;
+  const span = passage.spans[0];
+  if (!span.quads.length || !passage.text) return null;
+
+  const index = pageIndex(paper, span.page);
+  const touched = index.sentences.filter((entry) =>
+    entry.quads.some((q) =>
+      span.quads.some((s) => coverage(s, q) > 0.3 || coverage(q, s) > 0.3),
+    ),
+  );
+  if (!touched.length) return null;
+
+  const whole = touched.map((e) => e.sentence.text).join(' ');
+  if (passage.text.length >= whole.length - 2) return null;
+
+  if (touched.length === 1) {
+    const ratio = passage.text.length / Math.max(1, touched[0].sentence.text.length);
+    if (ratio < 0.85) return null;
+  }
+
+  const quads = touched.flatMap((e) => e.quads);
+  return quads.length ? { page: span.page, quads } : null;
 }

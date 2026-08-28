@@ -30,6 +30,12 @@ interface Props {
   marks: SceneMark[];
   lit: Quad[];
   flash: Quad[] | null;
+  /** What a click here would take, shown before it is taken. */
+  hoverQuads: Quad[];
+  /** True when that is a figure or a table rather than words. */
+  hoverRegion: boolean;
+  /** A mark that has just landed on this page. */
+  pulse: Quad[] | null;
   searchQuads: Quad[];
   /** The passage the pointer would act on, while a tool is being carried. */
   targetQuads: Quad[];
@@ -45,6 +51,9 @@ export const PageSheet = memo(function PageSheet({
   marks,
   lit,
   flash,
+  hoverQuads,
+  hoverRegion,
+  pulse,
   searchQuads,
   targetQuads,
   onMarkClick,
@@ -169,6 +178,18 @@ export const PageSheet = memo(function PageSheet({
               />
             )),
           )}
+          {hoverQuads.map((q, j) => (
+            <span
+              key={`h-${j}`}
+              className={`absolute ${hoverRegion ? 'pa-hover-region' : 'pa-hover'}`}
+              style={{
+                left: pct(q.x - 0.002),
+                top: pct(q.y - 0.003),
+                width: pct(q.w + 0.004),
+                height: pct(q.h + 0.006),
+              }}
+            />
+          ))}
           {lit.map((q, j) => (
             <span
               key={`lit-${j}`}
@@ -212,6 +233,7 @@ export const PageSheet = memo(function PageSheet({
               <Fragment key={i}>
                 <span
                   data-run=""
+                  data-after={run.after === '\n' ? 'n' : run.after === ' ' ? 's' : ''}
                   data-w={run.quad.w}
                   data-quad={`${round(run.quad.x)},${round(run.quad.y)},${round(run.quad.w)},${round(run.quad.h)}`}
                   style={{
@@ -244,6 +266,18 @@ export const PageSheet = memo(function PageSheet({
                 background: 'color-mix(in oklch, var(--accent) 20%, transparent)',
                 outline: '1.5px solid var(--accent)',
                 borderRadius: 2,
+              }}
+            />
+          ))}
+          {pulse?.map((q, j) => (
+            <span
+              key={`p-${j}`}
+              className="pa-pulse absolute"
+              style={{
+                left: pct(q.x - 0.003),
+                top: pct(q.y - 0.004),
+                width: pct(q.w + 0.006),
+                height: pct(q.h + 0.008),
               }}
             />
           ))}

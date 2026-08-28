@@ -18,7 +18,7 @@ const STEPS = [
     anchor: 'paper',
     side: 'right',
     title: 'Highlight something in the paper',
-    body: 'Drag across any words, or click a sentence to take the whole of it. This is the real PDF — what you mark is what gets cited.',
+    body: 'Click a sentence to take the whole of it, and click again to widen — sentence, paragraph, section. Or drag across the words; the mark rounds out to whole ones. This is the real PDF, so what you mark is what gets cited.',
   },
   {
     id: 'make',

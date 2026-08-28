@@ -18,8 +18,9 @@ behalf, because a talk assembled by a machine is a talk you then have to argue w
 you would rather begin from a draft, the empty storyboard offers to make one from the
 whole paper; it stays a thing you asked for.)
 
-Highlight a passage and a bar arrives on it. Then either click a tool or pick one up and
-drop it on the words:
+Click a sentence to take the whole of it — click again to widen to the paragraph, or drag
+across the words and the mark rounds out to whole ones. A bar arrives on whatever you
+marked. Then either click a tool or pick one up and drop it on the words:
 
 | Drop this | Get this |
 |---|---|

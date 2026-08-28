@@ -16,16 +16,22 @@ import { MarkerBar } from './MarkerBar';
 import { ToolDock } from './ToolDock';
 import { targetQuadsFor } from './useDragEngine';
 import {
+  anchorRect,
   clearSelection,
+  completeSelection,
+  extendMark,
   grow,
-  hitPage,
+  passageFromQuads,
   passageFromRegion,
   readSelection,
   selectQuads,
   shrink,
+  snapSelectionToWords,
   stepSentence,
+  targetForClick,
+  type MarkTarget,
 } from './selection';
-import { union } from './pageText';
+import { coverage, union } from './pageText';
 
 /**
  * The paper.
@@ -56,6 +62,10 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
   const cropArmed = useReader((s) => s.cropArmed);
   const setCropArmed = useReader((s) => s.setCropArmed);
   const keep = useReader((s) => s.keep);
+  const pulse = useReader((s) => s.pulse);
+  const setPulse = useReader((s) => s.setPulse);
+  const hover = useReader((s) => s.hover);
+  const setHover = useReader((s) => s.setHover);
 
   const { ctx, apply } = useApply();
 
@@ -65,10 +75,20 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
     null,
   );
   const marquee = useRef<{ page: number; box: DOMRect; x0: number; y0: number } | null>(null);
+  /** Clicks in the same spot, in a row: 1 takes a sentence, 3 a paragraph. */
+  const clicks = useRef({ n: 0, x: 0, y: 0, at: 0 });
+  const hoverAt = useRef<{ x: number; y: number; el: HTMLElement | null }>({
+    x: 0,
+    y: 0,
+    el: null,
+  });
+  const hoverRaf = useRef(0);
+  const hoverKey = useRef('');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
 
   const paper = project?.paper ?? null;
+  const carrying = !!drag?.live && !!drag.instrumentId;
 
   /* ---- search ---------------------------------------------------------- */
   useEffect(() => {
@@ -136,11 +156,71 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
   }, [sourceFocus]);
 
   /* ---- committing a mark ---------------------------------------------- */
-  const commit = useCallback(() => {
-    if (!paper) return;
-    const found = readSelection(scroller.current, paper);
-    setPassage(found);
-  }, [paper, setPassage]);
+
+  /**
+   * Read the browser's selection and make it the mark.
+   *
+   * `tidy` is set when the selection came from a drag, and is the whole of what
+   * makes dragging forgiving: the ends are rounded out to whole words, and a
+   * drag that crossed into a second sentence takes both sentences whole. A drag
+   * that stayed inside one sentence is left exactly as made — a phrase inside a
+   * sentence is a deliberate act, and is what a spotlight is made of.
+   */
+  const commit = useCallback(
+    (options: { tidy?: boolean; pulse?: boolean } = {}) => {
+      if (!paper) return null;
+      if (options.tidy) snapSelectionToWords(scroller.current);
+
+      let found = readSelection(scroller.current, paper);
+      if (found && options.tidy) {
+        const whole = completeSelection(paper, found);
+        if (whole && selectQuads(scroller.current, whole.page, whole.quads)) {
+          found = readSelection(scroller.current, paper) ?? found;
+        }
+      }
+
+      setPassage(found);
+      const span = found?.spans.find((s) => s.quads.length);
+      if (options.pulse && span) setPulse({ page: span.page, quads: span.quads });
+      return found;
+    },
+    [paper, setPassage, setPulse],
+  );
+
+  /** Where a set of quads sits on screen, for anchoring the marker bar. */
+  const rectFor = useCallback((page: number, quads: Quad[]) => {
+    const r = anchorRect({ page, quads, text: '' });
+    return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+  }, []);
+
+  /**
+   * Mark exactly this, whether or not there is selectable text under it.
+   *
+   * A figure, a table and a line drawn as artwork have no runs to select, so
+   * they could never be marked by clicking. They can now: the mark falls back
+   * to the geometry, and the bar arrives on it just the same.
+   */
+  const markTarget = useCallback(
+    (target: MarkTarget) => {
+      if (!paper) return;
+      const rect = rectFor(target.page, target.quads);
+
+      if (target.region) {
+        clearSelection();
+        setPassage(passageFromRegion(paper, target.page, target.quads[0], rect));
+        setPulse({ page: target.page, quads: target.quads });
+        return;
+      }
+      if (selectQuads(scroller.current, target.page, target.quads)) {
+        commit({ pulse: true });
+        return;
+      }
+      clearSelection();
+      setPassage(passageFromQuads(paper, target.page, target.quads, target.text, rect));
+      setPulse({ page: target.page, quads: target.quads });
+    },
+    [paper, commit, rectFor, setPassage, setPulse],
+  );
 
   /**
    * Put the mark on these quads and bring them into view.
@@ -165,7 +245,7 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
 
       const attempt = (tries: number) => {
         if (selectQuads(scroller.current, page, quads)) {
-          commit();
+          commit({ pulse: true });
           return;
         }
         if (tries > 0) window.setTimeout(() => attempt(tries - 1), 140);
@@ -175,22 +255,96 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
     [commit],
   );
 
-  const selectSentenceAt = useCallback(
-    (page: number, x: number, y: number) => {
-      if (!paper) return false;
-      const hit = hitPage(paper, page, x, y);
-      const quads = hit.sentence && hit.sentenceQuads.length
-        ? hit.sentenceQuads
-        : hit.line
-          ? [hit.line.quad]
-          : null;
-      if (!quads) return false;
-      if (!selectQuads(scroller.current, page, quads)) return false;
-      commit();
-      return true;
+  /**
+   * A click on the page.
+   *
+   * Clicking is never a caret: it always takes something, and the something is
+   * the sentence under the pointer. Clicking again in the same place widens the
+   * mark — sentence, paragraph, section — so a double click lands on the whole
+   * sentence rather than on the single word a browser would have given, and the
+   * ladder is reachable without knowing a shortcut exists.
+   *
+   * ⇧-click stretches the mark to wherever it lands instead, in either
+   * direction, which is the gesture every text editor already taught everyone.
+   */
+  const clickPage = useCallback(
+    (e: React.PointerEvent, down: { page: number; px: number; py: number }) => {
+      if (!paper) return;
+
+      const now = performance.now();
+      const run = clicks.current;
+      const again =
+        now - run.at < 600 && Math.hypot(e.clientX - run.x, e.clientY - run.y) < 14;
+      const n = again ? run.n + 1 : 1;
+      clicks.current = { n, x: e.clientX, y: e.clientY, at: now };
+
+      const current = useReader.getState().passage;
+      if (e.shiftKey && current) {
+        const next = extendMark(paper, current, down.page, down.px, down.py);
+        if (next && selectQuads(scroller.current, next.page, next.quads)) {
+          commit({ pulse: true });
+          return;
+        }
+      }
+
+      const target = targetForClick(paper, down.page, down.px, down.py, n);
+      if (!target) {
+        clearSelection();
+        setPassage(null);
+        return;
+      }
+      markTarget(target);
     },
-    [paper, commit],
+    [paper, commit, markTarget, setPassage],
   );
+
+  /* ---- what a click would take, before it is taken --------------------- */
+  const clearHover = useCallback(() => {
+    if (!hoverKey.current) return;
+    hoverKey.current = '';
+    setHover(null);
+  }, [setHover]);
+
+  const readHover = useCallback(() => {
+    hoverRaf.current = 0;
+    const { x, y, el } = hoverAt.current;
+    if (!paper || !el) {
+      clearHover();
+      return;
+    }
+    const page = Number(el.dataset.page);
+    const box = el.getBoundingClientRect();
+    if (!Number.isFinite(page) || box.width < 1) {
+      clearHover();
+      return;
+    }
+
+    const target = targetForClick(
+      paper,
+      page,
+      (x - box.left) / box.width,
+      (y - box.top) / box.height,
+      1,
+    );
+    // Nothing to preview once the mark is already on it — a second wash under
+    // the selection would read as a second mark.
+    const marked = useReader.getState().passage?.spans.find((sp) => sp.page === page);
+    const covered =
+      !!target &&
+      !!marked &&
+      target.quads.every((q) => marked.quads.some((m) => coverage(q, m) > 0.55));
+    if (!target || covered) {
+      clearHover();
+      return;
+    }
+
+    const key = `${page}:${target.kind}:${target.quads
+      .map((q) => `${q.x.toFixed(3)},${q.y.toFixed(3)}`)
+      .join('|')}`;
+    if (key === hoverKey.current) return;
+    hoverKey.current = key;
+    setHover({ page, quads: target.quads, region: !!target.region });
+  }, [paper, clearHover, setHover]);
 
   /* ---- marquee: drag a box around a figure ----------------------------- */
   const paintMarquee = useCallback((rect: DOMRect | null) => {
@@ -234,12 +388,28 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       const m = marquee.current;
-      if (!m) return;
-      const x = Math.min(m.x0, e.clientX);
-      const y = Math.min(m.y0, e.clientY);
-      paintMarquee(new DOMRect(x, y, Math.abs(e.clientX - m.x0), Math.abs(e.clientY - m.y0)));
+      if (m) {
+        const x = Math.min(m.x0, e.clientX);
+        const y = Math.min(m.y0, e.clientY);
+        paintMarquee(new DOMRect(x, y, Math.abs(e.clientX - m.x0), Math.abs(e.clientY - m.y0)));
+        return;
+      }
+
+      // The preview belongs to a pointer that is hovering, not working: while a
+      // selection is being dragged, a tool carried or a box cropped, the page is
+      // already saying what will happen.
+      if (e.pointerType === 'touch' || pointerDown.current || cropArmed || carrying) {
+        clearHover();
+        return;
+      }
+      hoverAt.current = {
+        x: e.clientX,
+        y: e.clientY,
+        el: (e.target as HTMLElement).closest<HTMLElement>('[data-page]'),
+      };
+      if (!hoverRaf.current) hoverRaf.current = requestAnimationFrame(readHover);
     },
-    [paintMarquee],
+    [paintMarquee, clearHover, readHover, cropArmed, carrying],
   );
 
   const onPointerUp = useCallback(
@@ -270,20 +440,31 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
         return;
       }
 
-      // A press that did not travel is a click: take the sentence under it.
-      const still = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 4;
+      // A press that did not travel is a click, and a click always takes
+      // something. The tolerance is generous on purpose: a hand that moves two
+      // pixels meant to click, and getting a two-character selection instead is
+      // the single most annoying thing a page like this can do.
+      const slop = e.pointerType === 'mouse' ? 6 : 12;
+      const still = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < slop;
       if (still && down) {
-        const sel = window.getSelection();
-        if (!sel || sel.isCollapsed) {
-          if (selectSentenceAt(down.page, down.px, down.py)) return;
-          setPassage(null);
-          return;
-        }
+        clickPage(e, down);
+        return;
       }
-      commit();
+      commit({ tidy: true, pulse: true });
     },
-    [paper, commit, selectSentenceAt, setPassage, paintMarquee, setCropArmed, apply],
+    [paper, commit, clickPage, paintMarquee, setCropArmed, apply],
   );
+
+  /**
+   * The browser's own double click takes a word and its triple click takes a
+   * block of runs; both are wrong here, and both happen on the *second*
+   * mousedown — so that is where they are stopped, before they can flicker.
+   */
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.detail >= 2 || (e.shiftKey && useReader.getState().passage)) e.preventDefault();
+  }, []);
+
+  const onPointerLeave = useCallback(() => clearHover(), [clearHover]);
 
   /* ---- keyboard -------------------------------------------------------- */
   useEffect(() => {
@@ -389,6 +570,19 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
     return () => clearTimeout(t);
   }, [flash, setFlash]);
 
+  useEffect(() => {
+    if (!pulse) return;
+    const t = setTimeout(() => setPulse(null), 380);
+    return () => clearTimeout(t);
+  }, [pulse, setPulse]);
+
+  useEffect(
+    () => () => {
+      if (hoverRaf.current) cancelAnimationFrame(hoverRaf.current);
+    },
+    [],
+  );
+
   const [wide, setWide] = useState(true);
   const zoomChosen = useRef(false);
   useLayoutEffect(() => {
@@ -411,8 +605,6 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
   }, [setZoom]);
 
   if (!project || !paper) return null;
-
-  const carrying = !!drag?.live && !!drag.instrumentId;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-[var(--surface-sunken)]">
@@ -449,6 +641,8 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerLeave={onPointerLeave}
+        onMouseDown={onMouseDown}
       >
         <div
           className="mx-auto"
@@ -462,6 +656,9 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
               marks={marksByPage.get(page.number) ?? EMPTY_MARKS}
               lit={litByPage.get(page.number) ?? EMPTY_QUADS}
               flash={flash?.page === page.number ? flash.quads : null}
+              hoverQuads={hover?.page === page.number ? hover.quads : EMPTY_QUADS}
+              hoverRegion={hover?.page === page.number && hover.region}
+              pulse={pulse?.page === page.number ? pulse.quads : null}
               searchQuads={searchByPage.get(page.number) ?? EMPTY_QUADS}
               targetQuads={targetQuadsFor(drag, page.number)}
               onMarkClick={onMarkClick}

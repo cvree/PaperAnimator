@@ -495,6 +495,11 @@ input[type='range']::-moz-range-thumb {
    ========================================================================== */
 
 .pa-textlayer {
+  /* The selection is painted above the page raster, so at any useful strength it
+     buries the ink it is meant to mark. Multiplying the layer instead makes the
+     selection behave like a real highlighter: the yellow lands on the paper and
+     the printed words stay black on top of it. */
+  mix-blend-mode: multiply;
   /* Stray whitespace between runs must take no space of its own; each run
      carries its own font-size in container units. */
   font-size: 0;
@@ -518,13 +523,72 @@ input[type='range']::-moz-range-thumb {
 }
 
 .pa-textlayer ::selection {
-  background: color-mix(in oklch, var(--hl-yellow) 82%, transparent);
+  background: var(--hl-yellow);
   color: transparent;
 }
 
 .pa-textlayer ::-moz-selection {
-  background: color-mix(in oklch, var(--hl-yellow) 82%, transparent);
+  background: var(--hl-yellow);
   color: transparent;
+}
+
+/* What a click would take, shown under the pointer before it is taken. A wash
+   rather than an outline: it has to read as ink on the page, not as a control,
+   and it must never be mistaken for the mark itself. */
+.pa-hover {
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--hl-yellow) 30%, transparent);
+  mix-blend-mode: multiply;
+  animation: hover-in 110ms var(--ease-out);
+}
+
+@keyframes hover-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Artwork is previewed as a frame rather than a wash: a figure-sized block of
+   colour reads as a mark already made, and this one has not been made yet. */
+.pa-hover-region {
+  border-radius: 3px;
+  outline: 1.5px dashed color-mix(in oklch, var(--accent) 70%, transparent);
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+  animation: hover-in 110ms var(--ease-out);
+}
+
+/* The acknowledgement a mark landed. One beat, then gone. */
+.pa-pulse {
+  border-radius: 2px;
+  outline: 1.5px solid var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  opacity: 0;
+  animation: mark-settle 340ms var(--ease-out);
+}
+
+@keyframes mark-settle {
+  0% {
+    opacity: 0.9;
+    transform: scale(1.035);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pa-hover,
+  .pa-hover-region {
+    animation: none;
+  }
+
+  .pa-pulse {
+    display: none;
+  }
 }
 
 /* While a tool is being carried, the page stops being selectable so the drag
