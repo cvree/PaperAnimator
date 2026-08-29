@@ -560,6 +560,15 @@ input[type='range']::-moz-range-thumb {
   animation: hover-in 110ms var(--ease-out);
 }
 
+/* Once the reader has stepped back, its preview steps back with it. Somebody
+   marking by hand is watching their own selection, not the reader's guess at
+   one, and a sentence washing in under the pointer is the guessing they asked it
+   to stop. It stays — a click still takes the sentence — but barely. Artwork
+   keeps its frame at full strength: clicking it is the only way to take it. */
+.pa-reader[data-byhand='true'] .pa-hover {
+  background: color-mix(in oklch, var(--hl-yellow) 12%, transparent);
+}
+
 /* The acknowledgement a mark landed. One beat, then gone. */
 .pa-pulse {
   border-radius: 2px;

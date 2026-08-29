@@ -46,6 +46,15 @@ interface ReaderState {
   hover: { page: number; quads: Quad[]; region: boolean } | null;
   /** Armed by the Crop tool: the next drag draws a box instead of marking text. */
   cropArmed: boolean;
+  /**
+   * True once the reader has seen this person mark by hand.
+   *
+   * From then on it stops rounding marks out, keeps a mark made inside a single
+   * word, treats a small aimed drag as a mark rather than as a click, and lets
+   * ⇧-click land on a character instead of swallowing a sentence. Nothing is
+   * lost by it: a click still takes the sentence, and ⌥↑ still climbs the ladder.
+   */
+  byHand: boolean;
 
   setZoom: (z: number) => void;
   setPassage: (p: Passage | null) => void;
@@ -59,6 +68,7 @@ interface ReaderState {
   setPulse: (p: { page: number; quads: Quad[] } | null) => void;
   setHover: (h: { page: number; quads: Quad[]; region: boolean } | null) => void;
   setCropArmed: (b: boolean) => void;
+  setByHand: (b: boolean) => void;
   reset: () => void;
 }
 
@@ -74,6 +84,7 @@ export const useReader = create<ReaderState>((set, get) => ({
   pulse: null,
   hover: null,
   cropArmed: false,
+  byHand: false,
 
   setZoom: (zoom) => set({ zoom: Math.max(0.4, Math.min(2.4, zoom)) }),
   setPassage: (passage) => set({ passage, hover: null }),
@@ -95,6 +106,7 @@ export const useReader = create<ReaderState>((set, get) => ({
   setPulse: (p) => set({ pulse: p ? { ...p, at: performance.now() } : null }),
   setHover: (hover) => set({ hover }),
   setCropArmed: (cropArmed) => set({ cropArmed }),
+  setByHand: (byHand) => set({ byHand }),
 
   reset: () =>
     set({
@@ -106,6 +118,7 @@ export const useReader = create<ReaderState>((set, get) => ({
       pulse: null,
       hover: null,
       cropArmed: false,
+      byHand: false,
     }),
 }));
 

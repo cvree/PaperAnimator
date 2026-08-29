@@ -17,20 +17,32 @@ import { ToolDock } from './ToolDock';
 import { targetQuadsFor } from './useDragEngine';
 import {
   anchorRect,
+  captureSelection,
   clearSelection,
   completeSelection,
   extendMark,
+  extendSelectionToPoint,
   grow,
   passageFromQuads,
   passageFromRegion,
   readSelection,
+  restoreSelection,
   selectQuads,
   shrink,
   snapSelectionToWords,
   stepSentence,
   targetForClick,
   type MarkTarget,
+  type Passage,
 } from './selection';
+import {
+  beginTrace,
+  marksByHand,
+  readIntent,
+  traceMove,
+  type DragIntent,
+  type DragTrace,
+} from './intent';
 import { coverage, union } from './pageText';
 
 /**
@@ -44,6 +56,21 @@ import { coverage, union } from './pageText';
 
 const EMPTY_QUADS: Quad[] = [];
 const EMPTY_MARKS: SceneMark[] = [];
+/** How long a rounded mark stays the thing a hand-drawn mark could be redoing. */
+const REDO_WINDOW = 12_000;
+/** How many times a session offers the rounding back before it stops asking. */
+const ROUND_UP_OFFERS = 3;
+
+/**
+ * How much text a mark holds, for telling a mark redrawn smaller from one widened.
+ *
+ * Width along the lines, never area: a selection's rectangles are as tall as the
+ * browser's line box and a sentence's quads are as tall as its printed glyphs,
+ * so their areas are not on the same scale and their widths are.
+ */
+function spread(quads: Quad[]): number {
+  return quads.reduce((sum, q) => sum + Math.max(0, q.w), 0);
+}
 
 export function Reader({ compactDock = false }: { compactDock?: boolean }) {
   const project = useApp((s) => s.project);
@@ -66,14 +93,26 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
   const setPulse = useReader((s) => s.setPulse);
   const hover = useReader((s) => s.hover);
   const setHover = useReader((s) => s.setHover);
+  const byHand = useReader((s) => s.byHand);
+  const setByHand = useReader((s) => s.setByHand);
 
   const { ctx, apply } = useApply();
 
   const scroller = useRef<HTMLDivElement>(null);
   const marqueeEl = useRef<HTMLDivElement>(null);
-  const pointerDown = useRef<{ x: number; y: number; page: number; px: number; py: number } | null>(
-    null,
-  );
+  const pointerDown = useRef<{
+    x: number;
+    y: number;
+    page: number;
+    px: number;
+    py: number;
+    /** The path the pointer took, which is what says whether a mark was aimed. */
+    trace: DragTrace;
+  } | null>(null);
+  /** The last mark the reader rounded out, so redoing it by hand reads as a no. */
+  const rounded = useRef<{ page: number; quads: Quad[]; at: number } | null>(null);
+  /** Aimed marks seen so far, offers made, and whether rounding was asked back. */
+  const handMarks = useRef({ aimed: 0, offers: 0, roundUpWanted: false });
   const marquee = useRef<{ page: number; box: DOMRect; x0: number; y0: number } | null>(null);
   /** Clicks in the same spot, in a row: 1 takes a sentence, 3 a paragraph. */
   const clicks = useRef({ n: 0, x: 0, y: 0, at: 0 });
@@ -157,34 +196,137 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
 
   /* ---- committing a mark ---------------------------------------------- */
 
+  /** Whatever is selected right now, made the mark. */
+  const takeSelection = useCallback(
+    (pulse: boolean) => {
+      if (!paper) return null;
+      const found = readSelection(scroller.current, paper);
+      setPassage(found);
+      const span = found?.spans.find((s) => s.quads.length);
+      if (pulse && span) setPulse({ page: span.page, quads: span.quads });
+      return found;
+    },
+    [paper, setPassage, setPulse],
+  );
+
+  /**
+   * Stop rounding marks out, and say so once.
+   *
+   * The reader steps back and stays back: someone marking by hand at the top of
+   * a paper is still marking by hand at the bottom of it, and a helpfulness that
+   * comes and goes is worse than either. Nothing is taken away by stepping back
+   * — a click still takes the sentence, ⌥↑ still climbs the ladder, and the
+   * marker bar still widens — so the only thing lost is the guessing.
+   */
+  const stepBack = useCallback(() => {
+    if (useReader.getState().byHand || handMarks.current.roundUpWanted) return;
+    rounded.current = null;
+    setByHand(true);
+    showToast('Marking by hand — marks are kept exactly as dragged', {
+      label: 'Round up again',
+      run: () => {
+        // Asked for, so remembered: the reader does not step back a second time.
+        handMarks.current = { aimed: 0, offers: 0, roundUpWanted: true };
+        setByHand(false);
+      },
+    });
+  }, [setByHand, showToast]);
+
+  /**
+   * A mark redrawn by hand, smaller, over one the reader had just rounded out.
+   *
+   * That is somebody saying no to the rounding, in the only language a page
+   * offers, and it does not have to be said twice.
+   */
+  const redoesRoundUp = useCallback((mark: Passage) => {
+    const last = rounded.current;
+    if (!last) return false;
+    if (performance.now() - last.at > REDO_WINDOW) {
+      rounded.current = null;
+      return false;
+    }
+    const span = mark.spans.find((sp) => sp.page === last.page);
+    if (!span?.quads.length) return false;
+    const inside = span.quads.some((q) =>
+      last.quads.some((r) => coverage(q, r) > 0.4 || coverage(r, q) > 0.4),
+    );
+    return inside && spread(span.quads) < spread(last.quads) * 0.92;
+  }, []);
+
+  /**
+   * Round a mark out to the word or two it stopped short of, and offer it back.
+   *
+   * The offer is the point. A round-up that cannot be refused in one click is a
+   * guess the reader is forcing on somebody; one that can is a suggestion —
+   * and refusing it is also how the reader learns to stop suggesting.
+   */
+  const roundUp = useCallback(
+    (dragged: Passage) => {
+      if (!paper) return;
+      const whole = completeSelection(paper, dragged);
+      if (!whole) return;
+      const asDragged = captureSelection(scroller.current);
+      if (!selectQuads(scroller.current, whole.page, whole.quads)) return;
+      rounded.current = { page: whole.page, quads: whole.quads, at: performance.now() };
+
+      // Offered a few times and then left alone: somebody who has watched the
+      // reader round three marks out without objecting is not being ambushed by
+      // the fourth. Redrawing one by hand still says no, whether it was offered
+      // or not, because that is recorded above rather than in the toast.
+      if (handMarks.current.offers >= ROUND_UP_OFFERS) return;
+      handMarks.current.offers += 1;
+
+      showToast(
+        dragged.sentences.length > 1
+          ? 'Rounded out to the whole sentences'
+          : 'Rounded out to the whole sentence',
+        {
+          label: 'Keep what I marked',
+          run: () => {
+            // The exact range first, and the words it covered if the page it was
+            // on has since dropped its text — a mark put back to the word is
+            // still the mark, and refusing to put it back at all is not.
+            const span = dragged.spans.find((sp) => sp.quads.length);
+            const back =
+              restoreSelection(asDragged) ||
+              (!!span && selectQuads(scroller.current, span.page, span.quads));
+            if (!back) return;
+            rounded.current = null;
+            takeSelection(true);
+            stepBack();
+          },
+        },
+      );
+    },
+    [paper, showToast, stepBack, takeSelection],
+  );
+
   /**
    * Read the browser's selection and make it the mark.
    *
    * `tidy` is set when the selection came from a drag, and is the whole of what
-   * makes dragging forgiving: the ends are rounded out to whole words, and a
-   * drag that crossed into a second sentence takes both sentences whole. A drag
-   * that stayed inside one sentence is left exactly as made — a phrase inside a
-   * sentence is a deliberate act, and is what a spotlight is made of.
+   * makes dragging forgiving: the ends round out to whole words, and a drag that
+   * stopped a word short of a sentence takes the word. It is also the whole of
+   * what makes dragging *presumptuous*, so it holds back the moment there is any
+   * sign the mark was aimed — an aimed mark, and every mark after the reader has
+   * seen two of them, is kept exactly as it was dragged.
    */
   const commit = useCallback(
-    (options: { tidy?: boolean; pulse?: boolean } = {}) => {
+    (options: { tidy?: boolean; pulse?: boolean; intent?: DragIntent | null } = {}) => {
       if (!paper) return null;
-      if (options.tidy) snapSelectionToWords(scroller.current);
+      const exact = useReader.getState().byHand || !!options.intent?.deliberate;
+      if (options.tidy) snapSelectionToWords(scroller.current, { keepInsideWord: exact });
 
-      let found = readSelection(scroller.current, paper);
-      if (found && options.tidy) {
-        const whole = completeSelection(paper, found);
-        if (whole && selectQuads(scroller.current, whole.page, whole.quads)) {
-          found = readSelection(scroller.current, paper) ?? found;
-        }
+      const dragged = options.tidy && !exact ? readSelection(scroller.current, paper) : null;
+      if (dragged && redoesRoundUp(dragged)) {
+        // Redrawing a rounded mark by hand is a no. This one is left alone too.
+        if (marksByHand(handMarks.current.aimed, true)) stepBack();
+      } else if (dragged) {
+        roundUp(dragged);
       }
-
-      setPassage(found);
-      const span = found?.spans.find((s) => s.quads.length);
-      if (options.pulse && span) setPulse({ page: span.page, quads: span.quads });
-      return found;
+      return takeSelection(!!options.pulse);
     },
-    [paper, setPassage, setPulse],
+    [paper, redoesRoundUp, roundUp, stepBack, takeSelection],
   );
 
   /** Where a set of quads sits on screen, for anchoring the marker bar. */
@@ -266,6 +408,9 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
    *
    * ⇧-click stretches the mark to wherever it lands instead, in either
    * direction, which is the gesture every text editor already taught everyone.
+   * It lands on the sentence while the reader is helping, and on the character
+   * once it has stepped back — by then the pointer is being aimed, and an aimed
+   * pointer means the word it is on.
    */
   const clickPage = useCallback(
     (e: React.PointerEvent, down: { page: number; px: number; py: number }) => {
@@ -280,6 +425,15 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
 
       const current = useReader.getState().passage;
       if (e.shiftKey && current) {
+        if (
+          useReader.getState().byHand &&
+          !current.region &&
+          extendSelectionToPoint(scroller.current, e.clientX, e.clientY)
+        ) {
+          snapSelectionToWords(scroller.current, { keepInsideWord: true });
+          commit({ pulse: true });
+          return;
+        }
         const next = extendMark(paper, current, down.page, down.px, down.py);
         if (next && selectQuads(scroller.current, next.page, next.quads)) {
           commit({ pulse: true });
@@ -373,6 +527,7 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
         page,
         px: (e.clientX - box.left) / box.width,
         py: (e.clientY - box.top) / box.height,
+        trace: beginTrace(e.clientX, e.clientY, performance.now(), e.pointerType),
       };
 
       if (cropArmed || e.altKey) {
@@ -393,6 +548,12 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
         const y = Math.min(m.y0, e.clientY);
         paintMarquee(new DOMRect(x, y, Math.abs(e.clientX - m.x0), Math.abs(e.clientY - m.y0)));
         return;
+      }
+
+      // Every sample of a press is kept: how far it travelled, where it slowed
+      // and where it came back on itself is what tells a swipe from an aimed mark.
+      if (pointerDown.current) {
+        traceMove(pointerDown.current.trace, e.clientX, e.clientY, performance.now());
       }
 
       // The preview belongs to a pointer that is hovering, not working: while a
@@ -440,19 +601,37 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
         return;
       }
 
+      const intent = down ? readIntent(down.trace, performance.now()) : null;
+
       // A press that did not travel is a click, and a click always takes
       // something. The tolerance is generous on purpose: a hand that moves two
       // pixels meant to click, and getting a two-character selection instead is
       // the single most annoying thing a page like this can do.
-      const slop = e.pointerType === 'mouse' ? 6 : 12;
-      const still = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < slop;
+      //
+      // Once the reader has stepped back it stops being so generous. A short
+      // press that was aimed and left words behind it is a mark — two words
+      // taken slowly are not a slip — and it is only read as a click when there
+      // turns out to be nothing selected under it.
+      const slop = e.pointerType === 'mouse' ? (byHand ? 4 : 6) : 12;
+      const still = !!down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < slop;
+
       if (still && down) {
-        clickPage(e, down);
-        return;
+        const aimed = byHand && !!intent && intent.travel >= 5 && intent.duration >= 150;
+        if (!aimed || !commit({ tidy: true, pulse: true, intent })) {
+          clickPage(e, down);
+          return;
+        }
+      } else {
+        commit({ tidy: true, pulse: true, intent });
       }
-      commit({ tidy: true, pulse: true });
+
+      // Aimed marks are evidence. Two of them and the reader stops guessing.
+      if (intent?.deliberate && useReader.getState().passage) {
+        handMarks.current.aimed += 1;
+        if (marksByHand(handMarks.current.aimed, false)) stepBack();
+      }
     },
-    [paper, commit, clickPage, paintMarquee, setCropArmed, apply],
+    [paper, byHand, commit, clickPage, paintMarquee, setCropArmed, apply, stepBack],
   );
 
   /**
@@ -637,6 +816,7 @@ export function Reader({ compactDock = false }: { compactDock?: boolean }) {
         className="pa-reader relative min-h-0 flex-1 overflow-auto scroll-quiet px-3 pb-24 pt-4"
         data-carrying={carrying}
         data-cropping={cropArmed}
+        data-byhand={byHand}
         data-coach="paper"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
