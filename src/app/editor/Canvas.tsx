@@ -10,8 +10,13 @@ import { Spark } from './SceneRail';
 
 /**
  * The live canvas. The playhead is a wall clock; every pixel comes from
- * resolveFrame. Narration is spoken alongside, and the word timings the engine
- * reports are written back into the project so the marker self-corrects.
+ * resolveFrame.
+ *
+ * The voice is off unless it has been asked for. Editing is reading and
+ * rewriting, and a synthetic voice reciting over that is noise — so the marker
+ * and the captions run from the cue's own timings and the engine is only woken
+ * when someone turns it on. When it is on, the word timings it reports are
+ * written back into the project, so the marker self-corrects.
  */
 
 export function Canvas() {
@@ -27,6 +32,8 @@ export function Canvas() {
   const play = useApp((s) => s.play);
   const mutate = useApp((s) => s.mutate);
   const setSpeaking = useApp((s) => s.setSpeaking);
+  const voicePreview = useApp((s) => s.voicePreview);
+  const setVoicePreview = useApp((s) => s.setVoicePreview);
 
   const host = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -91,10 +98,18 @@ export function Canvas() {
     [mutate],
   );
 
+  // No engine exists at all until the voice is switched on, so nothing can
+  // speak by accident, and switching it off cancels whatever is mid-sentence.
   useEffect(() => {
+    if (!voicePreview) {
+      narrator.current?.stop();
+      narrator.current = null;
+      setSpeaking(false);
+      return;
+    }
     narrator.current = new Narrator({
-      voiceURI: project?.settings.voiceURI ?? null,
-      rate: project?.settings.speakingRate ?? 1,
+      voiceURI: useApp.getState().project?.settings.voiceURI ?? null,
+      rate: useApp.getState().project?.settings.speakingRate ?? 1,
       onTimings: applyTimings,
       onEnd: () => setSpeaking(false),
     });
@@ -102,8 +117,7 @@ export function Canvas() {
       narrator.current?.stop();
       narrator.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [voicePreview, applyTimings, setSpeaking]);
 
   useEffect(() => {
     narrator.current?.update({
@@ -137,7 +151,7 @@ export function Canvas() {
       setFrame(f);
 
       // Speak the cue that has just become active.
-      if (useApp.getState().playing && f.activeCueId) {
+      if (narrator.current && useApp.getState().playing && f.activeCueId) {
         const scene = project.scenes.find((s) => s.id === f.sceneId);
         const cue = scene?.narration.find((c) => c.id === f.activeCueId);
         if (cue && f.sceneTMs - cue.startMs < 220) {
@@ -269,6 +283,8 @@ export function Canvas() {
         onSeek={seek}
         sceneIndex={frame?.sceneIndex ?? 0}
         sceneCount={project.scenes.filter((s) => !s.hidden).length}
+        voiceOn={voicePreview}
+        onToggleVoice={() => setVoicePreview(!voicePreview)}
         onAnimate={
           frame?.sceneId
             ? () =>
@@ -292,6 +308,8 @@ function Transport({
   onSeek,
   sceneIndex,
   sceneCount,
+  voiceOn,
+  onToggleVoice,
   onAnimate,
   animateLabel,
 }: {
@@ -303,6 +321,8 @@ function Transport({
   onSeek: (ms: number) => void;
   sceneIndex: number;
   sceneCount: number;
+  voiceOn: boolean;
+  onToggleVoice: () => void;
   onAnimate: (() => void) | null;
   animateLabel: string;
 }) {
@@ -350,6 +370,28 @@ function Transport({
         {formatTimecode(total)}
       </span>
 
+      {/* The voice is off while you work; this is how it is asked for, and it
+          says which state it is in rather than which state it would move to. */}
+      <button
+        type="button"
+        onClick={onToggleVoice}
+        aria-pressed={voiceOn}
+        title={
+          voiceOn
+            ? 'Reading the narration aloud during playback'
+            : 'Silent while you edit. Turn on to hear the narration.'
+        }
+        className="flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2 text-2xs transition-colors"
+        style={{
+          borderColor: voiceOn ? 'var(--accent)' : 'var(--rule-hairline)',
+          color: voiceOn ? 'var(--accent)' : 'var(--ink-tertiary)',
+          background: voiceOn ? 'var(--accent-subtle)' : 'transparent',
+        }}
+      >
+        <SpeakerGlyph on={voiceOn} />
+        <span className="hidden md:inline">{voiceOn ? 'Voice on' : 'Voice off'}</span>
+      </button>
+
       {onAnimate && (
         <button
           type="button"
@@ -366,6 +408,29 @@ function Transport({
         Scene {sceneIndex + 1} / {sceneCount}
       </span>
     </div>
+  );
+}
+
+/** A speaker, struck through when the voice is off. */
+function SpeakerGlyph({ on }: { on: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path
+        d="M5.6 2.2 3.4 4.1H1.8v3.8h1.6l2.2 1.9V2.2Z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="0.9"
+        strokeLinejoin="round"
+      />
+      {on ? (
+        <>
+          <path d="M7.7 4.3a2.4 2.4 0 0 1 0 3.4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+          <path d="M9.3 2.9a4.5 4.5 0 0 1 0 6.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+        </>
+      ) : (
+        <path d="m7.8 4.4 3 3.2m0-3.2-3 3.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      )}
+    </svg>
   );
 }
 

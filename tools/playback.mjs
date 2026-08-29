@@ -33,7 +33,7 @@ const meta = await page.evaluate(
 );
 console.log('video:', JSON.stringify(meta));
 
-for (const t of [0.35, 0.7, 1.1, 2, 12, 40]) {
+for (const t of [0.35, 0.7, 1.1, 2, 8.3, 8.45, 8.6, 12, 40]) {
   const ok = await page.evaluate(
     (time) =>
       new Promise((resolve) => {

@@ -33,7 +33,7 @@ await page.waitForSelector('.pa-reader', { timeout: 20000 });
 await page.waitForTimeout(1600);
 
 const skip = page.getByRole('button', { name: 'Skip' }).first();
-if (await skip.count()) await skip.click();
+if (await skip.count()) await skip.click({ force: true }).catch(() => {});
 await page.waitForTimeout(400);
 await shot('30-reader');
 

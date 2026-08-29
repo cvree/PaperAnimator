@@ -518,6 +518,8 @@ function MotionTab({ layer }: { layer: Layer | null }) {
 function VoiceTab() {
   const project = useApp((s) => s.project)!;
   const updateSettings = useApp((s) => s.updateSettings);
+  const voicePreview = useApp((s) => s.voicePreview);
+  const setVoicePreview = useApp((s) => s.setVoicePreview);
   const [voices, setVoices] = useState<Voice[]>([]);
 
   useEffect(() => {
@@ -535,6 +537,20 @@ function VoiceTab() {
 
   return (
     <div className="space-y-5">
+      <div className="space-y-2">
+        <Toggle
+          label="Read aloud while editing"
+          checked={voicePreview}
+          onChange={setVoicePreview}
+        />
+        <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
+          Off by default. The browser's synthetic voice is not what your talk will sound like, and
+          having it recite over you while you work is worse than silence. Captions, the reading
+          marker and the exported transcript all run without it. Nothing exported carries this
+          voice either way.
+        </p>
+      </div>
+
       <Field label="Voice" hint="Your browser's own voices. Nothing is sent anywhere.">
         <select
           value={project.settings.voiceURI ?? ''}
@@ -568,8 +584,9 @@ function VoiceTab() {
       />
 
       <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-        As it speaks, the engine reports where each word begins. Those timings are saved, so the
-        marker tracks the voice exactly on the next play.
+        With the voice on, the engine reports where each word begins as it speaks. Those timings
+        are saved, so the marker tracks the voice exactly on the next play. With it off, the
+        marker runs on the estimate the scene was composed with.
       </p>
     </div>
   );

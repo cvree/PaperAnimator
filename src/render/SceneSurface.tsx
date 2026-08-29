@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import type { Layer, StyleId } from '@/core/types';
 import type { FrameState, ResolvedHighlight, ResolvedLayer } from './resolveFrame';
-import type { ResolvedMask, RevealUnit } from './motion';
+import { SCENE_AT_REST, type ResolvedMask, type RevealUnit, type ScenePose } from './motion';
 import { STYLES, type TypeSpec, type VisualStyle } from './styles';
 
 /**
@@ -11,6 +11,11 @@ import { STYLES, type TypeSpec, type VisualStyle } from './styles';
  *
  * Nothing here animates on its own: every animated value arrives from
  * resolveFrame. There are no CSS transitions inside this subtree.
+ *
+ * At a scene join two stacks are drawn: the outgoing scene, frozen at its last
+ * instant, beneath the incoming one. Each carries its own ground, so a scene
+ * that slides out slides as a solid page rather than as a set of floating
+ * elements over the next scene's background.
  */
 
 interface Props {
@@ -37,6 +42,8 @@ export const SceneSurface = memo(function SceneSurface({
 }: Props) {
   const style = STYLES[styleId];
 
+  const join = frame.transition;
+
   return (
     <div
       className="relative overflow-hidden"
@@ -47,9 +54,82 @@ export const SceneSurface = memo(function SceneSurface({
         color: style.tokens.ink,
       }}
     >
+      {join && (
+        <SceneStack
+          key={join.fromSceneId}
+          layers={join.fromLayers}
+          pose={join.from}
+          style={style}
+          width={width}
+          height={height}
+          showReviewChips={false}
+        />
+      )}
+
+      <SceneStack
+        layers={frame.layers}
+        pose={join ? join.to : SCENE_AT_REST}
+        style={style}
+        width={width}
+        height={height}
+        interactive={interactive}
+        selectedLayerIds={selectedLayerIds}
+        onSelectLayer={onSelectLayer}
+        showReviewChips={showReviewChips}
+      />
+    </div>
+  );
+});
+
+/**
+ * One scene's worth of layers, posed as a unit.
+ *
+ * The grain lives inside the stack rather than over the whole surface, because
+ * the grain belongs to the paper: when a page turns, its texture has to travel
+ * with it.
+ */
+function SceneStack({
+  layers,
+  pose,
+  style,
+  width,
+  height,
+  interactive = false,
+  selectedLayerIds = [],
+  onSelectLayer,
+  showReviewChips,
+}: {
+  layers: ResolvedLayer[];
+  pose: ScenePose;
+  style: VisualStyle;
+  width: number;
+  height: number;
+  interactive?: boolean;
+  selectedLayerIds?: string[];
+  onSelectLayer?: (id: string, additive: boolean) => void;
+  showReviewChips: boolean;
+}) {
+  const moved = pose.tx !== 0 || pose.ty !== 0 || pose.scale !== 1;
+
+  return (
+    <div
+      className="absolute inset-0"
+      style={{
+        opacity: pose.opacity,
+        // The ground travels with the stack only when the stack travels; an
+        // unmoved scene paints straight onto the surface's own ground, which
+        // keeps the common case to a single fill.
+        background: moved ? style.tokens.ground : undefined,
+        transform: moved
+          ? `translate3d(${pose.tx * width}px, ${pose.ty * height}px, 0) scale(${pose.scale})`
+          : undefined,
+        transformOrigin: 'center',
+        willChange: moved ? 'transform, opacity' : undefined,
+      }}
+    >
       <GrainOverlay opacity={style.tokens.grain} dark={isDark(style)} />
 
-      {frame.layers.map((rl) => (
+      {layers.map((rl) => (
         <LayerView
           key={rl.id}
           rl={rl}
@@ -64,7 +144,7 @@ export const SceneSurface = memo(function SceneSurface({
       ))}
     </div>
   );
-});
+}
 
 function GrainOverlay({ opacity, dark }: { opacity: number; dark: boolean }) {
   return (

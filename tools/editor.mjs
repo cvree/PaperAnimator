@@ -26,7 +26,7 @@ await page.waitForTimeout(1500);
 
 // dismiss onboarding
 const skip = page.getByRole('button', { name: 'Skip' }).first();
-if (await skip.count()) await skip.click();
+if (await skip.count()) await skip.click({ force: true }).catch(() => {});
 await page.waitForTimeout(400);
 await shot('20-editor-simple');
 

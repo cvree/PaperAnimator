@@ -1,6 +1,6 @@
 import type { Layer } from '@/core/types';
 import type { FrameState, ResolvedLayer } from '@/render/resolveFrame';
-import type { ResolvedMask, RevealUnit } from '@/render/motion';
+import { SCENE_AT_REST, type ResolvedMask, type RevealUnit, type ScenePose } from '@/render/motion';
 import { STYLES, type TypeSpec, type VisualStyle } from '@/render/styles';
 
 /**
@@ -32,14 +32,59 @@ export function paintFrame(
   ctx.fillStyle = style.tokens.ground;
   ctx.fillRect(0, 0, W, H);
 
-  for (const rl of frame.layers) {
-    paintLayer(ctx, rl, style, options);
+  // At a scene join the outgoing scene is painted first, in its own pose, and
+  // the incoming one over it — the same two stacks the browser renderer draws,
+  // in the same order, so the exported join matches the previewed one frame
+  // for frame.
+  const join = frame.transition;
+  if (join) {
+    paintStack(ctx, join.fromLayers, join.from, style, options);
   }
+  paintStack(ctx, frame.layers, join ? join.to : SCENE_AT_REST, style, options);
 
   if (options.captions && frame.caption) {
     paintCaption(ctx, frame.caption.text, style, options);
   }
 
+  ctx.restore();
+}
+
+/** One scene's layers, posed as a unit. */
+function paintStack(
+  ctx: CanvasRenderingContext2D,
+  layers: ResolvedLayer[],
+  pose: ScenePose,
+  style: VisualStyle,
+  o: PaintOptions,
+): void {
+  if (pose.opacity <= 0.004) return;
+
+  const moved = pose.tx !== 0 || pose.ty !== 0 || pose.scale !== 1;
+  const posed = moved || pose.opacity < 1;
+  if (!posed) {
+    for (const rl of layers) paintLayer(ctx, rl, style, o);
+    return;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = pose.opacity;
+  if (moved) {
+    const cx = o.width / 2;
+    const cy = o.height / 2;
+    ctx.translate(pose.tx * o.width, pose.ty * o.height);
+    ctx.translate(cx, cy);
+    ctx.scale(pose.scale, pose.scale);
+    ctx.translate(-cx, -cy);
+    // A scene that travels carries its page with it, or the scene beneath
+    // shows through the margin it has vacated. The fill is exactly the frame,
+    // drawn *after* the transform so it moves with the scene — the same box the
+    // browser renderer paints as the stack's own background. Filling any wider
+    // would cover the whole canvas however far the stack had travelled, and a
+    // scene sliding in from the right would erase the one it is replacing.
+    ctx.fillStyle = style.tokens.ground;
+    ctx.fillRect(0, 0, o.width, o.height);
+  }
+  for (const rl of layers) paintLayer(ctx, rl, style, o);
   ctx.restore();
 }
 
@@ -58,7 +103,10 @@ function paintLayer(
   const h = layer.frame.h * o.height;
 
   ctx.save();
-  ctx.globalAlpha = rl.opacity;
+  // Multiplied, not assigned: a layer inside a scene that is itself fading out
+  // has to end up at the product of the two, exactly as the DOM composites
+  // nested opacities.
+  ctx.globalAlpha *= rl.opacity;
 
   // The clip is applied before the transform, exactly as clip-path is in the
   // browser: the mask belongs to the layer's box, not to the moved image of it.

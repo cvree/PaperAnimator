@@ -5,7 +5,7 @@ import '@/styles/base.css';
 import { SceneSurface } from '@/render/SceneSurface';
 import { paintFrame, loadImages } from '@/export/paint';
 import { resolveFrame } from '@/render/resolveFrame';
-import { MOTIONS } from '@/render/motion';
+import { MOTIONS, TRANSITIONS } from '@/render/motion';
 import type { Layer, MotionPreset, Project, Scene } from '@/core/types';
 
 /**
@@ -61,18 +61,36 @@ function sceneFor(preset: MotionPreset): Scene {
   };
 }
 
-function projectFor(scene: Scene): Project {
+function projectFor(...scenes: Scene[]): Project {
   return {
     id: 'p' as never,
     version: 1,
     title: '',
     paper: null as never,
     settings: null as never,
-    scenes: [scene],
+    scenes,
     style: 'broadsheet',
     createdAt: '',
     updatedAt: '',
   };
+}
+
+/** Draw one resolved frame both ways, side by side, into `pair`. */
+function drawBoth(pair: HTMLElement, frame: ReturnType<typeof resolveFrame>) {
+  const dom = document.createElement('div');
+  dom.style.width = `${W}px`;
+  dom.style.height = `${H}px`;
+  pair.appendChild(dom);
+  createRoot(dom).render(
+    <SceneSurface frame={frame} styleId="broadsheet" width={W} height={H} showReviewChips={false} />,
+  );
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  pair.appendChild(canvas);
+  const ctx = canvas.getContext('2d')!;
+  paintFrame(ctx, frame, 'broadsheet', { width: W, height: H, captions: false, images });
 }
 
 const sheet = document.getElementById('sheet')!;
@@ -95,22 +113,39 @@ for (const def of MOTIONS) {
     const pair = document.createElement('div');
     pair.className = 'pair';
     pair.innerHTML = `<span class="tag">${Math.round(share * 100)}%</span>`;
+    drawBoth(pair, frame);
+    row.appendChild(pair);
+  }
 
-    const dom = document.createElement('div');
-    dom.style.width = `${W}px`;
-    dom.style.height = `${H}px`;
-    pair.appendChild(dom);
-    createRoot(dom).render(
-      <SceneSurface frame={frame} styleId="broadsheet" width={W} height={H} showReviewChips={false} />,
-    );
+  sheet.appendChild(row);
+}
 
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    pair.appendChild(canvas);
-    const ctx = canvas.getContext('2d')!;
-    paintFrame(ctx, frame, 'broadsheet', { width: W, height: H, captions: false, images });
+/* ---- the joins ---------------------------------------------------------- *
+ * A transition is two scenes on screen at once, and the two renderers compose
+ * them differently — the DOM nests opacity and transform, the painter has to
+ * multiply and concatenate them by hand. That is exactly where the two would
+ * drift apart, so every join is drawn both ways here as well.
+ */
+for (const def of TRANSITIONS) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<div class="name">→ ${def.name}</div>`;
 
+  const outgoing: Scene = {
+    ...sceneFor('none'),
+    id: 's0' as never,
+    title: 'before',
+    durationMs: 1000,
+  };
+  const incoming: Scene = { ...sceneFor('rise'), transitionIn: def.id };
+  const project = projectFor(outgoing, incoming);
+
+  for (const share of [0.25, 0.5, 0.8]) {
+    const t = outgoing.durationMs + Math.max(1, def.durationMs) * share;
+    const pair = document.createElement('div');
+    pair.className = 'pair';
+    pair.innerHTML = `<span class="tag">${Math.round(share * 100)}%</span>`;
+    drawBoth(pair, resolveFrame(project, t, { reducedMotion: false }));
     row.appendChild(pair);
   }
 
@@ -141,10 +176,19 @@ for (const def of MOTIONS) {
     if (moved) violations.push(`${def.id} @ ${share}`);
   }
 }
+for (const def of TRANSITIONS) {
+  const outgoing: Scene = { ...sceneFor('none'), id: 's0' as never, durationMs: 1000 };
+  const incoming: Scene = { ...sceneFor('rise'), transitionIn: def.id };
+  const project = projectFor(outgoing, incoming);
+  const frame = resolveFrame(project, 1000 + Math.max(1, def.durationMs) * 0.5, {
+    reducedMotion: true,
+  });
+  if (frame.transition) violations.push(`join ${def.id}`);
+}
 console.log(
   violations.length
     ? 'REDUCED MOTION VIOLATIONS: ' + violations.join(', ')
-    : 'reduced motion: nothing moves, in every entrance',
+    : 'reduced motion: nothing moves, in every entrance or join',
 );
 
 // React renders on a microtask; the flag goes up once it has flushed.

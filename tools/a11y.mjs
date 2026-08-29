@@ -35,7 +35,7 @@ const report = (label, errors) =>
   await page.screenshot({ path: 'shots/51-mobile-setup.png' });
   await page.waitForTimeout(2000);
   const skip = page.getByRole('button', { name: 'Skip' }).first();
-  if (await skip.count()) await skip.click();
+  if (await skip.count()) await skip.click({ force: true }).catch(() => {});
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'shots/52-mobile-editor.png' });
   for (const tab of ['Paper', 'Scenes', 'Review']) {

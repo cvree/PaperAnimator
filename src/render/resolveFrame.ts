@@ -6,8 +6,10 @@ import {
   motionDef,
   settledReveal,
   stillMotion,
+  transitionDef,
   type ResolvedMask,
   type ResolvedReveal,
+  type ScenePose,
 } from './motion';
 
 /**
@@ -65,6 +67,19 @@ export interface ResolvedCaption {
   words: { text: string; spoken: boolean; active: boolean }[];
 }
 
+export interface SceneTransitionState {
+  fromSceneId: SceneId;
+  kind: Scene['transitionIn'];
+  /** Raw 0–1 across the transition. */
+  progress: number;
+  /** The outgoing scene, resolved at its final moment. */
+  fromLayers: ResolvedLayer[];
+  /** Where the outgoing scene sits while it leaves. */
+  from: ScenePose;
+  /** Where the incoming scene sits while it arrives. */
+  to: ScenePose;
+}
+
 export interface FrameState {
   tMs: number;
   sceneIndex: number;
@@ -72,14 +87,17 @@ export interface FrameState {
   sceneTMs: number;
   sceneDurationMs: number;
   layers: ResolvedLayer[];
-  /** Outgoing scene during a transition, plus 0–1 progress. */
-  transition: { fromSceneId: SceneId; progress: number; kind: Scene['transitionIn'] } | null;
+  /**
+   * The join between two scenes, fully resolved: the outgoing scene's layers at
+   * the last moment it held, and the pose each of the two scenes is in. Both
+   * renderers draw `from` beneath `to`, so a transition looks the same on the
+   * stage as it does in the exported file.
+   */
+  transition: SceneTransitionState | null;
   caption: ResolvedCaption | null;
   activeCueId: string | null;
   totalMs: number;
 }
-
-const TRANSITION_MS = 420;
 
 /* ============================================================================
    Timeline
@@ -168,14 +186,34 @@ export function resolveFrame(
     .sort((a, b) => a.z - b.z)
     .map((layer) => resolveLayer(layer, scene, sceneTMs, options));
 
-  // Transitions overlap the boundary so the outgoing scene can be cross-rendered.
-  let transition: FrameState['transition'] = null;
-  if (win.index > 0 && sceneTMs < TRANSITION_MS && scene.transitionIn !== 'cut') {
-    const prev = windows[win.index - 1];
+  // A join lives inside the scene it belongs to — the first `durationMs` of it —
+  // rather than straddling the boundary, so the timeline stays exactly the sum
+  // of the scene durations. Resolving the outgoing scene costs a second pass
+  // over its layers, so it happens only inside that window.
+  let transition: SceneTransitionState | null = null;
+  const tdef = transitionDef(scene.transitionIn);
+  if (
+    win.index > 0 &&
+    scene.transitionIn !== 'cut' &&
+    tdef.durationMs > 0 &&
+    sceneTMs < tdef.durationMs &&
+    !options.reducedMotion
+  ) {
+    const prev = windows[win.index - 1].scene;
+    const progress = clamp01(sceneTMs / tdef.durationMs);
+    const poses = tdef.resolve(progress);
     transition = {
-      fromSceneId: prev.scene.id,
-      progress: options.reducedMotion ? 1 : sceneTMs / TRANSITION_MS,
+      fromSceneId: prev.id,
       kind: scene.transitionIn,
+      progress,
+      // The outgoing scene is frozen at the last instant it was on screen,
+      // which is exactly the image the viewer was looking at when the cut came.
+      fromLayers: prev.layers
+        .filter((l) => !l.hidden)
+        .sort((a, b) => a.z - b.z)
+        .map((layer) => resolveLayer(layer, prev, Math.max(0, prev.durationMs - 1), options)),
+      from: poses.from,
+      to: poses.to,
     };
   }
 
@@ -240,7 +278,7 @@ function resolveLayer(
     }
   }
 
-  const reveal = resolveReveal(layer, motion.reveal, raw, options);
+  const reveal = resolveReveal(layer, motion.reveal, raw, enter.durationMs, options);
 
   return {
     id: layer.id,
@@ -282,6 +320,7 @@ function resolveReveal(
   layer: Layer,
   plan: ReturnType<typeof stillMotion>['reveal'],
   raw: number,
+  durationMs: number,
   options: ResolveOptions,
 ): ResolvedReveal | null {
   // Staggering applies to set text only. A picture has no words to stagger, so
@@ -295,7 +334,7 @@ function resolveReveal(
   const count = plan.unit === 'char' ? text.length : words.length;
   if (count === 0) return null;
   if (options.reducedMotion) return settledReveal(plan.unit, count);
-  return expandReveal(plan, count, raw);
+  return expandReveal(plan, count, raw, durationMs);
 }
 
 /* ============================================================================
@@ -479,10 +518,6 @@ function clamp01(x: number): number {
 
 function clampRange(x: number, lo: number, hi: number): number {
   return x < lo ? lo : x > hi ? hi : x;
-}
-
-export function easeInOut(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 export function findSceneStart(project: Project, sceneId: SceneId): number {

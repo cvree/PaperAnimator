@@ -87,9 +87,13 @@ within a scene
 - **Scene duration is derived by default**: `sum(cue durations) + leadIn + leadOut`,
   clamped to a minimum of 1.8s. The user can pin a duration; pinning is recorded so a
   re-synthesis of narration doesn't silently overwrite an intentional choice.
-- **Transitions overlap**: a 400ms transition means the outgoing scene renders until
-  `end + 200` and the incoming from `start - 200`. `resolveFrame` returns both layer sets
-  with a `transition.progress` so the compositor can cross-render.
+- **Transitions overlap, inside the incoming scene**: a 420ms transition occupies the
+  first 420ms of the scene it belongs to, rather than straddling the boundary. The scene
+  timeline therefore stays exactly `sum(durations)` — no negative time, and a scene's
+  window is the same interval whether or not it has a join. `resolveFrame` returns both
+  layer sets (the outgoing one resolved at its own final instant) plus a `ScenePose` for
+  each side, so both renderers compose the two identically. Each transition's length is
+  its own, declared alongside it in `TRANSITIONS`.
 - **Word timings drive highlights**, so changing the voice or rate re-times every
   highlight correctly with no manual work.
 

@@ -15,7 +15,7 @@ await page.waitForTimeout(1500);
 await page.screenshot({ path: 'shots/61-press-setup.png' });
 await page.waitForTimeout(1800);
 const skip = page.getByRole('button', { name: 'Skip' }).first();
-if (await skip.count()) await skip.click();
+if (await skip.count()) await skip.click({ force: true }).catch(() => {});
 await page.waitForTimeout(500);
 await page.screenshot({ path: 'shots/62-press-editor.png' });
 console.log(errors.length ? 'CONSOLE ERRORS:\n' + errors.slice(0, 8).join('\n') : 'no console errors');

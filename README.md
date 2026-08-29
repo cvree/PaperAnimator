@@ -89,11 +89,20 @@ exporter alike. Nothing inside the scene surface animates via CSS or a motion li
 That single rule turns "preview matches export" from a QA problem into a type signature.
 
 **Every animation is one definition.** `src/render/motion.ts` holds the whole catalogue —
-twenty-one entrances and six sustained motions — each a pure function of progress. The
-storyboard's animated tiles run that function, the stage runs it, and the exporter runs
-it, so an animation cannot look one way while you are choosing it and another way once it
-is chosen. `tools/parity-shot.mjs` draws both renderings of the same frame side by side to
-prove it, and asserts the reduced-motion contract: with movement off, nothing travels.
+twenty-one entrances, six sustained motions and five scene transitions — each a pure
+function of progress. The storyboard's animated tiles run that function, the stage runs
+it, and the exporter runs it, so an animation cannot look one way while you are choosing
+it and another way once it is chosen. `tools/parity-shot.mjs` draws both renderings of the
+same frame side by side to prove it — entrances and joins alike — and asserts the
+reduced-motion contract: with movement off, nothing travels.
+
+**The motion has house rules, and they are in the code.** Easing curves are real
+cubic-béziers solved at runtime, so a curve written as a CSS token and the same curve on
+the canvas are one function rather than two approximations of it. Entrance blur is clamped
+to about three pixels at 1080p. Staggers are laid out in milliseconds and capped, so a
+forty-word paragraph and a four-word headline both arrive at a pace a person can read.
+Durations come off one short scale, so the deck has a rhythm instead of twenty unrelated
+timings.
 
 ---
 
@@ -103,18 +112,29 @@ Marking a passage makes a scene; the ✦ **Animate** button on any storyboard ca
 <kbd>M</kbd>, or the button beside the transport — opens the gallery. Every tile in it is
 your own scene, animating for real, so choosing is watching rather than guessing.
 
-Entrances are grouped by what they act on. Words and letters get **Cascade**, **Typeset**,
-**Scatter**, **Tumble**, **Open out**, **Ink bleed** and **Sweep**; pictures get **Iris**,
-**Wipe**, **Shutter**, **Develop**, **Crop in** and **Push**; the quiet workhorses —
-**Rise**, **Settle**, **Slide**, **Focus pull**, **Cut** — suit anything. The gallery leads
-with the ones built for whatever the scene is actually about, judged by what occupies the
-most of the frame.
+It opens on **Look**, which is the only choice most people should have to make. A look
+sets the whole scene at once — the entrance suited to each kind of element, what keeps
+moving after it lands, how far apart things arrive, and how the scene is joined to the one
+before it — because those four decisions are not separable, and making them one at a time
+is how a deck ends up with a headline that tumbles next to a figure that irises.
+**Editorial** is calm and printed, **Documentary** slower and filmic, **Keynote** crisp and
+word-by-word, **Minimal** nearly nothing. Each can be applied to this scene or to every
+scene in the talk. Everything a look sets stays editable afterwards.
 
-Three further controls sit under them. **While it stays on screen** adds sustained motion
+Under it the same decisions are available one at a time, shelved rather than dumped in a
+grid. **Essentials** leads — the five that are right almost always and wrong almost never
+— then the shelf this content can actually perform: **Word and letter** for text
+(**Cascade**, **Typeset**, **Sweep**, **Open out**, **Ink bleed**), **Pictures and tables**
+for figures (**Crop in**, **Unfold**, **Shutter**, **Develop**, **Draw on**, **Trace**),
+and **Accents** last, for the louder moves worth one moment in a talk rather than ten.
+
+Three further controls sit under those. **While it stays on screen** adds sustained motion
 after the entrance has landed — a slow zoom that travels inside a figure's frame, a drift,
-a breath. **Choreography** hands out the delays so elements arrive in sequence rather than
-all at once. **Volume** takes the same move louder or quieter without changing its
-character. Every choice applies immediately and is a single undo away.
+a breath. **Coming from the scene before** is the join itself: a dissolve, a push in, a
+page turn, a recompose, or a straight cut, each tile running the two scenes that actually
+meet. **Choreography** hands out the delays; **Volume** takes the same move louder or
+quieter without changing its character. Every choice applies immediately and is a single
+undo away.
 
 ---
 
@@ -136,6 +156,14 @@ Narration is read by the browser's own speech engine, which cannot be captured i
 video file. The video is silent and carries captions; the captions, transcript and speaker
 notes contain every spoken line.
 
+**The voice is off while you edit.** A synthetic voice reciting over you every time the
+playhead moves is worse than silence, and it is the wrong thing to judge the writing by —
+so nothing is spoken unless you ask for it, with the speaker button beside the transport or
+the switch in the inspector's Voice tab. The choice is remembered per browser. Captions,
+the reading marker and everything exported work either way; with the voice on, the engine
+reports where each word begins and those timings are saved, so the marker then tracks it
+exactly.
+
 ---
 
 ## Verifying it
@@ -147,7 +175,8 @@ real browser against `npm run preview`.
 |---|---|
 | `tools/flow.mjs` | Landing → processing → editor, arriving on the paper with an empty storyboard |
 | `tools/motion.mjs` | Making a scene, opening the animation gallery three ways, picking an entrance, watching the stage obey |
-| `tools/parity-shot.mjs` | Every entrance drawn twice — screen against export — plus the reduced-motion assertion (needs `npm run dev`) |
+| `tools/parity-shot.mjs` | Every entrance and every scene join drawn twice — screen against export — plus the reduced-motion assertion (needs `npm run dev`) |
+| `tools/joins-and-voice.mjs` | That nothing is spoken until the voice is asked for, and that a scene join really puts two scenes on the surface at once |
 | `tools/editor.mjs` | Marking a sentence, making a scene, the source thread, each disclosure level, integrity, export |
 | `tools/reader.mjs` | The text layer, highlighting, the marker bar, dragging a tool onto a sentence, cropping a figure, comparing two passages |
 | `tools/marking.mjs` | What a drag marks: what is rounded out, what is left alone, and the reader stepping back once it is being done by hand |

@@ -14,12 +14,22 @@ interface Props {
   scene: Scene;
   styleId: StyleId;
   aspect: Aspect;
-  /** Time within the scene. Defaults to just past the last entrance. */
+  /**
+   * The scene this one is cut from. Supplying it makes the preview a timeline
+   * of two scenes rather than one, which is the only way to show a transition
+   * — a join cannot be previewed from one side of it.
+   */
+  before?: Scene | null;
+  /**
+   * Time within the scene — or, when `before` is given, within the pair,
+   * measured from the start of the outgoing scene. Defaults to just past the
+   * last entrance.
+   */
   atMs?: number;
   className?: string;
 }
 
-export function ScenePreview({ scene, styleId, aspect, atMs, className }: Props) {
+export function ScenePreview({ scene, styleId, aspect, before, atMs, className }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -39,24 +49,24 @@ export function ScenePreview({ scene, styleId, aspect, atMs, className }: Props)
   const height = width * ratio;
 
   const settled = useMemo(
-    () => (atMs !== undefined ? atMs : settledOffset(scene)),
-    [scene, atMs],
+    () => (atMs !== undefined ? atMs : settledOffset(scene) + (before ? before.durationMs : 0)),
+    [scene, before, atMs],
   );
 
   const frame = useMemo(() => {
-    const single: Project = {
+    const preview: Project = {
       id: 'preview' as never,
       version: 1,
       title: '',
       paper: null as never,
       settings: null as never,
-      scenes: [scene],
+      scenes: before ? [before, scene] : [scene],
       style: styleId,
       createdAt: '',
       updatedAt: '',
     };
-    return resolveFrame(single, settled, { reducedMotion: false });
-  }, [scene, styleId, settled]);
+    return resolveFrame(preview, settled, { reducedMotion: false });
+  }, [scene, before, styleId, settled]);
 
   return (
     <div ref={host} className={className} style={{ width: '100%', aspectRatio: `${dims.w} / ${dims.h}` }}>

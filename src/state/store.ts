@@ -57,6 +57,18 @@ interface AppState {
   playing: boolean;
   timeMs: number;
   speaking: boolean;
+  /**
+   * Whether the browser's speech engine reads the narration aloud while you
+   * work. Off unless you ask for it: a synthetic voice talking over you every
+   * time the playhead moves is the fastest way to make an editor unusable, and
+   * it is the wrong thing to judge the writing by. Captions, the marker and the
+   * exported transcript all work with it off — only the sound is withheld.
+   *
+   * It is a preference of yours, not a property of the project, so it lives
+   * here and in localStorage rather than in the file. It has no bearing on
+   * anything exported, which carries no synthesised audio either way.
+   */
+  voicePreview: boolean;
 
   /* history */
   past: Command[];
@@ -93,6 +105,7 @@ interface AppState {
   seek: (ms: number) => void;
   seekScene: (id: SceneId) => void;
   setSpeaking: (b: boolean) => void;
+  setVoicePreview: (b: boolean) => void;
 
   mutate: (label: string, recipe: (draft: Project) => void, coalesceKey?: string) => void;
   undo: () => void;
@@ -104,6 +117,17 @@ interface AppState {
 }
 
 const HISTORY_LIMIT = 50;
+
+const VOICE_PREVIEW_KEY = 'pa:voice-preview';
+
+/** Off unless this browser has been told otherwise, and off if it cannot say. */
+function readVoicePreview(): boolean {
+  try {
+    return localStorage.getItem(VOICE_PREVIEW_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 export const useApp = create<AppState>((set, get) => ({
   phase: 'landing',
@@ -126,6 +150,7 @@ export const useApp = create<AppState>((set, get) => ({
   playing: false,
   timeMs: 0,
   speaking: false,
+  voicePreview: readVoicePreview(),
 
   past: [],
   future: [],
@@ -237,6 +262,15 @@ export const useApp = create<AppState>((set, get) => ({
     set({ timeMs: t + offset, selectedSceneId: id, selectedLayerIds: [] });
   },
   setSpeaking: (speaking) => set({ speaking }),
+
+  setVoicePreview: (voicePreview) => {
+    try {
+      localStorage.setItem(VOICE_PREVIEW_KEY, voicePreview ? '1' : '0');
+    } catch {
+      /* private mode */
+    }
+    set({ voicePreview, speaking: voicePreview ? get().speaking : false });
+  },
 
   mutate: (label, recipe, coalesceKey) => {
     const before = get().project;

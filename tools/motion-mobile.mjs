@@ -15,7 +15,7 @@ await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
 await page.waitForSelector('.pa-reader', { timeout: 60000 });
 await page.waitForTimeout(1200);
 const skip = page.getByRole('button', { name: 'Skip' }).first();
-if (await skip.count()) await skip.click();
+if (await skip.count()) await skip.click({ force: true }).catch(() => {});
 
 await page.getByRole('button', { name: 'Scenes' }).click();
 await page.waitForTimeout(400);

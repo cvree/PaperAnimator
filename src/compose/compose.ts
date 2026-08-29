@@ -19,6 +19,7 @@ import type {
   TextAtom,
   TextLayer,
 } from '@/core/types';
+import { motionDef } from '@/render/motion';
 import { formatStat } from '@/extract/stats';
 
 /**
@@ -179,7 +180,7 @@ function titleScene(paper: Paper, settings: ProjectSettings): Scene {
       atoms: [atom(title, prov(titleRef))],
       role: 'display',
       frame: { x: M, y: 0.24, w: 1 - M * 2, h: 0.34 },
-      enter: motion('rise', 0, 720),
+      enter: motion('rise', 0),
       align: 'start',
     }),
   );
@@ -195,7 +196,7 @@ function titleScene(paper: Paper, settings: ProjectSettings): Scene {
     rotation: 0,
     locked: false,
     hidden: false,
-    enter: motion('draw-on', 480, 640),
+    enter: motion('draw-on', 480),
     emphasis: [],
     altText: null,
     decorative: true,
@@ -210,7 +211,7 @@ function titleScene(paper: Paper, settings: ProjectSettings): Scene {
         atoms: [atom(byline, prov({ page: 1, quads: [], text: byline }))],
         role: 'label',
         frame: { x: M, y: 0.67, w: 1 - M * 2, h: 0.06 },
-        enter: motion('rise', 620, 520),
+        enter: motion('rise', 620),
         align: 'start',
       }),
     );
@@ -225,7 +226,7 @@ function titleScene(paper: Paper, settings: ProjectSettings): Scene {
         atoms: [atom(meta, { kind: 'authored' })],
         role: 'caption',
         frame: { x: M, y: 0.74, w: 1 - M * 2, h: 0.05 },
-        enter: motion('rise', 760, 480),
+        enter: motion('rise', 760),
         align: 'start',
       }),
     );
@@ -252,14 +253,14 @@ function statementScene(
       atoms: [atom(title.toUpperCase(), LABEL)],
       role: 'label',
       frame: { x: M, y: 0.18, w: 0.5, h: 0.05 },
-      enter: motion('rise', 0, 420),
+      enter: motion('rise', 0),
       align: 'start',
     }),
     text({
       atoms: [atom(body, p)],
       role: body.length > 190 ? 'body' : 'headline',
       frame: { x: M, y: 0.28, w: 1 - M * 2, h: 0.46 },
-      enter: motion('rise', 160, 640),
+      enter: motion('rise', 160),
       align: 'start',
       emphasisFromWords: true,
     }),
@@ -296,7 +297,7 @@ function statisticScene(
       rotation: 0,
       locked: false,
       hidden: false,
-      enter: motion('rise', 80, 700),
+      enter: motion('rise', 80),
       emphasis: [],
       altText: `${display}${qualifiers.length ? `, ${qualifiers.join(', ')}` : ''}`,
       decorative: false,
@@ -305,7 +306,7 @@ function statisticScene(
       atoms: [atom(context, prov(grounded.refs[0], grounded.confidence))],
       role: 'body',
       frame: { x: M, y: 0.66, w: 1 - M * 2, h: 0.22 },
-      enter: motion('rise', 420, 560),
+      enter: motion('rise', 420),
       align: 'start',
       emphasisFromWords: true,
     }),
@@ -343,7 +344,7 @@ function figureScene(fig: Figure, paper: Paper, settings: ProjectSettings): Scen
       rotation: 0,
       locked: false,
       hidden: false,
-      enter: motion('crop-in', 60, 780),
+      enter: motion('crop-in', 60),
       emphasis: [],
       altText: fig.altText,
       decorative: false,
@@ -352,7 +353,7 @@ function figureScene(fig: Figure, paper: Paper, settings: ProjectSettings): Scen
       atoms: [atom(fig.label.toUpperCase(), LABEL)],
       role: 'label',
       frame: { x: M, y: 0.755, w: 0.3, h: 0.04 },
-      enter: motion('rise', 520, 380),
+      enter: motion('rise', 520),
       align: 'start',
     }),
   ];
@@ -363,7 +364,7 @@ function figureScene(fig: Figure, paper: Paper, settings: ProjectSettings): Scen
         atoms: [atom(shorten(stripLabel(fig.caption), 220), p)],
         role: 'caption',
         frame: { x: M, y: 0.8, w: 1 - M * 2, h: 0.12 },
-        enter: motion('rise', 600, 460),
+        enter: motion('rise', 600),
         align: 'start',
       }),
     );
@@ -399,7 +400,7 @@ function tableScene(tab: PaperTable, settings: ProjectSettings): Scene {
       rotation: 0,
       locked: false,
       hidden: false,
-      enter: motion('unfold', 60, 720),
+      enter: motion('unfold', 60),
       emphasis: [],
       altText: `${tab.label}${tab.caption ? `: ${stripLabel(tab.caption)}` : ''}`,
       decorative: false,
@@ -408,7 +409,7 @@ function tableScene(tab: PaperTable, settings: ProjectSettings): Scene {
       atoms: [atom(tab.label.toUpperCase(), LABEL)],
       role: 'label',
       frame: { x: M, y: 0.78, w: 0.3, h: 0.04 },
-      enter: motion('rise', 480, 380),
+      enter: motion('rise', 480),
       align: 'start',
     }),
   ];
@@ -418,7 +419,7 @@ function tableScene(tab: PaperTable, settings: ProjectSettings): Scene {
         atoms: [atom(shorten(stripLabel(tab.caption), 200), p)],
         role: 'caption',
         frame: { x: M, y: 0.825, w: 1 - M * 2, h: 0.1 },
-        enter: motion('rise', 560, 440),
+        enter: motion('rise', 560),
         align: 'start',
       }),
     );
@@ -442,7 +443,7 @@ function citationsScene(paper: Paper, settings: ProjectSettings): Scene {
       atoms: [atom('SOURCES', LABEL)],
       role: 'label',
       frame: { x: M, y: 0.16, w: 0.4, h: 0.05 },
-      enter: motion('rise', 0, 400),
+      enter: motion('rise', 0),
       align: 'start',
     }),
     text({
@@ -454,7 +455,7 @@ function citationsScene(paper: Paper, settings: ProjectSettings): Scene {
       ],
       role: 'headline',
       frame: { x: M, y: 0.24, w: 1 - M * 2, h: 0.16 },
-      enter: motion('rise', 120, 520),
+      enter: motion('rise', 120),
       align: 'start',
     }),
     text({
@@ -463,7 +464,7 @@ function citationsScene(paper: Paper, settings: ProjectSettings): Scene {
       ),
       role: 'caption',
       frame: { x: M, y: 0.46, w: 1 - M * 2, h: 0.42 },
-      enter: motion('rise', 260, 620),
+      enter: motion('rise', 260),
       align: 'start',
     }),
   ];
@@ -563,8 +564,23 @@ function prov(ref: SourceRef | undefined, confidence = 0.92): Provenance {
   return { kind: 'extracted', ref, confidence };
 }
 
-function motion(preset: MotionSpec['preset'], delayMs: number, durationMs: number): MotionSpec {
-  return { preset, delayMs, durationMs, reducedMotion: 'fade' };
+/**
+ * An entrance at the length its preset was designed for.
+ *
+ * The composer decides *when* each element arrives — that is choreography, and
+ * it belongs to the scene. How long the arrival itself takes belongs to the
+ * preset, and is read from the catalogue rather than repeated here, so the
+ * whole deck runs on one rhythm and retuning a preset retunes every scene that
+ * uses it.
+ */
+function motion(preset: MotionSpec['preset'], delayMs: number, durationMs?: number): MotionSpec {
+  const def = motionDef(preset);
+  return {
+    preset,
+    delayMs,
+    durationMs: durationMs ?? def.durationMs,
+    reducedMotion: def.reducedMotion,
+  };
 }
 
 function cue(

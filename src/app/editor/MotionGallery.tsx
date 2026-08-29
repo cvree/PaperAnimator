@@ -4,23 +4,32 @@ import { useApp } from '@/state/store';
 import type { Aspect, HoldPreset, Layer, Scene, SceneId, StyleId } from '@/core/types';
 import { ScenePreview } from '@/render/ScenePreview';
 import { useLoopTime } from '@/render/useClock';
+import { LOOKS, applyLook, currentLook, type LookDef } from '@/render/choreography';
 import {
+  GROUP_LABEL,
   HOLDS,
+  TRANSITIONS,
   affinityOf,
   holdDef,
-  motionsFor,
+  motionGroupsFor,
   unsuitedReason,
   type MotionAffinity,
   type MotionDef,
+  type TransitionDef,
 } from '@/render/motion';
 
 /**
  * The animation gallery.
  *
- * Every tile is the *actual scene*, animating with the preset it offers, drawn
+ * Every tile is the *actual scene*, animating with the thing it offers, drawn
  * by resolveFrame — the same function the stage and the exporter use. You are
  * not choosing from a list of names and hoping; you are watching your own scene
  * do the thing before you pick it.
+ *
+ * It is arranged as a staircase, widest step first: a look sets the whole scene
+ * at once and is where most people should stop; below it the same decisions are
+ * available one at a time, for the times when the whole is right and one
+ * element is not.
  *
  * Choosing applies immediately and is a single undo away, because a gallery
  * with an OK button is a gallery nobody experiments in.
@@ -59,6 +68,8 @@ export function MotionGallery({
   }, [scene]);
 
   const [target, setTarget] = useState<MotionTargetKind>('all');
+  /** Whether a look lands on this scene or on the whole talk. */
+  const [wholeTalk, setWholeTalk] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -81,10 +92,15 @@ export function MotionGallery({
       ? dominantAffinity(targets)
       : (target as MotionAffinity);
 
-  const presets = motionsFor(affinity);
+  const groups = motionGroupsFor(affinity);
   const currentPreset = commonValue(targets.map((l) => l.enter.preset));
   const currentHold = commonValue(targets.map((l) => l.enter.hold ?? 'none'));
   const currentIntensity = commonValue(targets.map((l) => l.enter.intensity ?? 1)) ?? 1;
+  const wornLook = currentLook(scene);
+
+  const sceneIndex = project.scenes.filter((s) => !s.hidden).findIndex((s) => s.id === sceneId);
+  const previousScene =
+    sceneIndex > 0 ? (project.scenes.filter((s) => !s.hidden)[sceneIndex - 1] ?? null) : null;
 
   const editTargets = (label: string, edit: (enter: Layer['enter'], index: number) => void) => {
     const ids = new Set(targets.map((l) => l.id));
@@ -98,6 +114,25 @@ export function MotionGallery({
         i++;
       }
     });
+  };
+
+  /* ---- the wide step: one look, whole scene ----------------------------- */
+  const pickLook = (look: LookDef) => {
+    mutate(wholeTalk ? `Look: ${look.name}, whole talk` : `Look: ${look.name}`, (draft) => {
+      for (const s of draft.scenes) {
+        if (!wholeTalk && s.id !== sceneId) continue;
+        if (s.hidden) continue;
+        applyLook(s, look);
+      }
+      // The first scene has nothing to be cut from, so it is never given a
+      // join — a talk that dissolves in from nothing starts on a stumble.
+      const first = draft.scenes.find((s) => !s.hidden);
+      if (first) first.transitionIn = 'cut';
+    });
+    showToast(
+      wholeTalk ? `${look.name} — every scene` : `${look.name} — ${scene.title}`,
+      { label: 'Undo', run: () => useApp.getState().undo() },
+    );
   };
 
   const applyPreset = (def: MotionDef) => {
@@ -116,6 +151,13 @@ export function MotionGallery({
     const def = holdDef(id);
     editTargets(`Hold: ${def.name}`, (enter) => {
       enter.hold = id;
+    });
+  };
+
+  const applyTransition = (def: TransitionDef) => {
+    mutate(`Join: ${def.name}`, (draft) => {
+      const s = draft.scenes.find((x) => x.id === sceneId);
+      if (s) s.transitionIn = def.id;
     });
   };
 
@@ -204,32 +246,112 @@ export function MotionGallery({
             </p>
           ) : (
             <>
+              {/* ---- looks: the one choice most people should make ---- */}
+              {!single && (
+                <>
+                  <SectionHead
+                    title="Look"
+                    hint="Sets every element on the scene at once. Start here."
+                  >
+                    <div className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--surface-sunken)] p-0.5">
+                      {(
+                        [
+                          [false, 'This scene'],
+                          [true, 'Every scene'],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setWholeTalk(value)}
+                          aria-pressed={wholeTalk === value}
+                          className="rounded-[var(--radius-xs)] px-2 py-0.5 text-2xs transition-colors"
+                          style={{
+                            background:
+                              wholeTalk === value ? 'var(--surface-raised)' : 'transparent',
+                            color:
+                              wholeTalk === value ? 'var(--ink-primary)' : 'var(--ink-tertiary)',
+                            fontWeight: wholeTalk === value ? 550 : 400,
+                            boxShadow: wholeTalk === value ? 'var(--shadow-raised)' : 'none',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </SectionHead>
+
+                  <div
+                    data-tiles="look"
+                    className="grid grid-cols-2 items-start gap-x-3 gap-y-4 sm:grid-cols-4"
+                  >
+                    {LOOKS.map((look, i) => (
+                      <LookTile
+                        key={look.id}
+                        look={look}
+                        scene={scene}
+                        styleId={project.style}
+                        aspect={project.settings.aspect}
+                        active={wornLook === look.id}
+                        phase={i * 220}
+                        onPick={() => pickLook(look)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* ---- one element at a time ---- */}
               <SectionHead
                 title="How it arrives"
-                hint="Every tile is this scene, animating for real."
+                hint={
+                  single
+                    ? 'Every tile is this scene, animating for real.'
+                    : `Applies to ${describeTargets(targets, null)} on this scene.`
+                }
+                className="mt-8"
               />
-              <div className="grid grid-cols-2 items-start gap-x-3 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
-                {presets.map((def, i) => (
-                  <MotionTile
-                    key={def.id}
-                    def={def}
-                    scene={scene}
-                    styleId={project.style}
-                    aspect={project.settings.aspect}
-                    targetIds={targets.map((l) => l.id)}
-                    intensity={currentIntensity}
-                    active={currentPreset === def.id}
-                    unsuited={unsuitedReason(def, affinity)}
-                    phase={i * 160}
-                    onPick={() => applyPreset(def)}
-                  />
-                ))}
-              </div>
+
+              {groups.map(({ group, motions }, gi) => (
+                <div key={group} className={gi === 0 ? '' : 'mt-5'}>
+                  <p className="mb-2 flex items-baseline gap-2">
+                    <span className="text-2xs font-medium text-[var(--ink-secondary)]">
+                      {GROUP_LABEL[group].title}
+                    </span>
+                    <span className="min-w-0 truncate text-2xs text-[var(--ink-faint)]">
+                      {GROUP_LABEL[group].hint}
+                    </span>
+                  </p>
+                  <div
+                    data-tiles="motion"
+                    /* Five across, because every group but one holds exactly
+                       five — a four-column grid orphans the fifth tile on a
+                       row of its own under each heading. */
+                    className="grid grid-cols-2 items-start gap-x-3 gap-y-4 sm:grid-cols-3 lg:grid-cols-5"
+                  >
+                    {motions.map((def, i) => (
+                      <MotionTile
+                        key={def.id}
+                        def={def}
+                        scene={scene}
+                        styleId={project.style}
+                        aspect={project.settings.aspect}
+                        targetIds={targets.map((l) => l.id)}
+                        intensity={currentIntensity}
+                        active={currentPreset === def.id}
+                        unsuited={unsuitedReason(def, affinity)}
+                        phase={(gi * 4 + i) * 160}
+                        onPick={() => applyPreset(def)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
 
               <SectionHead
                 title="While it stays on screen"
                 hint="What keeps happening after the entrance has landed."
-                className="mt-7"
+                className="mt-8"
               />
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {HOLDS.map((h) => (
@@ -244,12 +366,41 @@ export function MotionGallery({
                 ))}
               </div>
 
+              {/* ---- the join into this scene ---- */}
+              {!single && previousScene && (
+                <>
+                  <SectionHead
+                    title="Coming from the scene before"
+                    hint="How the cut into this scene is made."
+                    className="mt-8"
+                  />
+                  <div
+                    data-tiles="transition"
+                    className="grid grid-cols-2 items-start gap-x-3 gap-y-4 sm:grid-cols-3 lg:grid-cols-5"
+                  >
+                    {TRANSITIONS.map((t, i) => (
+                      <TransitionTile
+                        key={t.id}
+                        def={t}
+                        scene={scene}
+                        before={previousScene}
+                        styleId={project.style}
+                        aspect={project.settings.aspect}
+                        active={scene.transitionIn === t.id}
+                        phase={i * 240}
+                        onPick={() => applyTransition(t)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
               {!single && targets.length > 1 && (
                 <>
                   <SectionHead
                     title="Choreography"
                     hint="How far apart the elements arrive."
-                    className="mt-7"
+                    className="mt-8"
                   />
                   <div className="flex flex-wrap gap-2">
                     {[
@@ -271,7 +422,7 @@ export function MotionGallery({
                 </>
               )}
 
-              <SectionHead title="Volume" hint="The same move, quieter or louder." className="mt-7" />
+              <SectionHead title="Volume" hint="The same move, quieter or louder." className="mt-8" />
               <div className="flex items-center gap-3">
                 <input
                   type="range"
@@ -320,6 +471,105 @@ export function MotionGallery({
    Tiles
    ========================================================================== */
 
+/** The frame a tile holds while it waits, so the grid never twitches. */
+function TileFrame({
+  active,
+  dimmed,
+  children,
+}: {
+  active: boolean;
+  dimmed?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="overflow-hidden rounded-[var(--radius-sm)] border transition-all duration-150"
+      style={{
+        borderColor: active ? 'var(--accent)' : 'var(--rule-hairline)',
+        boxShadow: active ? '0 0 0 1px var(--accent)' : 'none',
+        opacity: dimmed ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function TileCaption({
+  name,
+  blurb,
+  active,
+}: {
+  name: string;
+  blurb: string;
+  active: boolean;
+}) {
+  return (
+    <>
+      <div className="mt-1.5 flex items-baseline gap-1.5 px-0.5">
+        <span
+          data-tile-name
+          className="truncate text-2xs"
+          style={{
+            color: active ? 'var(--ink-primary)' : 'var(--ink-secondary)',
+            fontWeight: active ? 560 : 440,
+          }}
+        >
+          {name}
+        </span>
+        {active && (
+          <span className="numeral shrink-0 text-2xs text-[var(--accent)]" aria-hidden="true">
+            ●
+          </span>
+        )}
+      </div>
+      {/* A fixed measure for the caption, so a two-line blurb next to a
+          one-line blurb does not stagger the whole grid. */}
+      <p className="mt-0.5 line-clamp-2 min-h-[2.1em] px-0.5 text-2xs leading-[1.4] text-[var(--ink-faint)]">
+        {blurb}
+      </p>
+    </>
+  );
+}
+
+/** A whole scene under one look, looping. */
+function LookTile({
+  look,
+  scene,
+  styleId,
+  aspect,
+  active,
+  phase,
+  onPick,
+}: {
+  look: LookDef;
+  scene: Scene;
+  styleId: StyleId;
+  aspect: Aspect;
+  active: boolean;
+  phase: number;
+  onPick: () => void;
+}) {
+  const candidate = useMemo(() => produce(scene, (draft) => applyLook(draft, look)), [scene, look]);
+  const loopMs = useMemo(() => entrancesEnd(candidate) + 1400, [candidate]);
+  const t = useLoopTime(loopMs, phase);
+
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={active}
+      title={look.blurb}
+      className="group flex w-full flex-col text-left"
+    >
+      <TileFrame active={active}>
+        <ScenePreview scene={candidate} styleId={styleId} aspect={aspect} atMs={t} />
+      </TileFrame>
+      <TileCaption name={look.name} blurb={look.blurb} active={active} />
+    </button>
+  );
+}
+
 function MotionTile({
   def,
   scene,
@@ -359,14 +609,7 @@ function MotionTile({
     [scene, targetIds, def, intensity],
   );
 
-  const loopMs = useMemo(() => {
-    const end = candidate.layers.reduce(
-      (max, l) => Math.max(max, l.enter.delayMs + l.enter.durationMs),
-      0,
-    );
-    return Math.max(2000, end + 1100);
-  }, [candidate]);
-
+  const loopMs = useMemo(() => Math.max(2000, entrancesEnd(candidate) + 1100), [candidate]);
   const t = useLoopTime(loopMs, phase);
 
   return (
@@ -377,37 +620,81 @@ function MotionTile({
       title={unsuited ?? def.blurb}
       className="group flex w-full flex-col text-left"
     >
-      <div
-        className="overflow-hidden rounded-[var(--radius-sm)] border transition-all duration-150"
-        style={{
-          borderColor: active ? 'var(--accent)' : 'var(--rule-hairline)',
-          boxShadow: active ? '0 0 0 1px var(--accent)' : 'none',
-          opacity: unsuited ? 0.5 : 1,
-        }}
-      >
+      <TileFrame active={active} dimmed={!!unsuited}>
         <ScenePreview scene={candidate} styleId={styleId} aspect={aspect} atMs={t} />
-      </div>
-      <div className="mt-1.5 flex items-baseline gap-1.5 px-0.5">
-        <span
-          className="truncate text-2xs"
-          style={{
-            color: active ? 'var(--ink-primary)' : 'var(--ink-secondary)',
-            fontWeight: active ? 560 : 440,
-          }}
-        >
-          {def.name}
-        </span>
-        {active && (
-          <span className="numeral shrink-0 text-2xs text-[var(--accent)]" aria-hidden="true">
-            ●
-          </span>
-        )}
-      </div>
-      {/* A fixed measure for the caption, so a two-line blurb next to a
-          one-line blurb does not stagger the whole grid. */}
-      <p className="mt-0.5 line-clamp-2 min-h-[2.1em] px-0.5 text-2xs leading-[1.4] text-[var(--ink-faint)]">
-        {unsuited ?? def.blurb}
-      </p>
+      </TileFrame>
+      <TileCaption name={def.name} blurb={unsuited ?? def.blurb} active={active} />
+    </button>
+  );
+}
+
+/**
+ * A join cannot be shown from one side of it, so the tile runs the two scenes
+ * that meet: the outgoing one, settled and holding, then the cut.
+ */
+function TransitionTile({
+  def,
+  scene,
+  before,
+  styleId,
+  aspect,
+  active,
+  phase,
+  onPick,
+}: {
+  def: TransitionDef;
+  scene: Scene;
+  before: Scene;
+  styleId: StyleId;
+  aspect: Aspect;
+  active: boolean;
+  phase: number;
+  onPick: () => void;
+}) {
+  const HOLD_BEFORE = 700;
+
+  /** The outgoing scene with its entrances already over — it is not the subject. */
+  const settledBefore = useMemo(
+    () =>
+      produce(before, (draft) => {
+        draft.durationMs = HOLD_BEFORE;
+        for (const layer of draft.layers) {
+          layer.enter.delayMs = 0;
+          layer.enter.durationMs = 1;
+        }
+      }),
+    [before],
+  );
+
+  const candidate = useMemo(
+    () =>
+      produce(scene, (draft) => {
+        draft.transitionIn = def.id;
+      }),
+    [scene, def.id],
+  );
+
+  const loopMs = HOLD_BEFORE + Math.max(def.durationMs, 260) + 900;
+  const t = useLoopTime(loopMs, phase);
+
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-pressed={active}
+      title={def.blurb}
+      className="group flex w-full flex-col text-left"
+    >
+      <TileFrame active={active}>
+        <ScenePreview
+          scene={candidate}
+          before={settledBefore}
+          styleId={styleId}
+          aspect={aspect}
+          atMs={t}
+        />
+      </TileFrame>
+      <TileCaption name={def.name} blurb={def.blurb} active={active} />
     </button>
   );
 }
@@ -479,15 +766,18 @@ function SectionHead({
   title,
   hint,
   className = '',
+  children,
 }: {
   title: string;
   hint: string;
   className?: string;
+  children?: React.ReactNode;
 }) {
   return (
-    <div className={`mb-2.5 flex items-baseline gap-2 ${className}`}>
+    <div className={`mb-2.5 flex flex-wrap items-baseline gap-2 ${className}`}>
       <p className="label">{title}</p>
-      <p className="min-w-0 truncate text-2xs text-[var(--ink-faint)]">{hint}</p>
+      <p className="min-w-0 flex-1 truncate text-2xs text-[var(--ink-faint)]">{hint}</p>
+      {children}
     </div>
   );
 }
@@ -495,6 +785,14 @@ function SectionHead({
 /* ============================================================================
    Picking what to animate
    ========================================================================== */
+
+/** When the last entrance on a scene has finished. */
+function entrancesEnd(scene: Scene): number {
+  return scene.layers.reduce(
+    (max, l) => Math.max(max, l.enter.delayMs + l.enter.durationMs),
+    0,
+  );
+}
 
 function pickLayers(scene: Scene, target: MotionTargetKind): Layer[] {
   const visible = scene.layers.filter((l) => !l.hidden && !l.decorative);

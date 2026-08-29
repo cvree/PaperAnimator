@@ -28,7 +28,7 @@ await page.waitForSelector('.pa-reader', { timeout: 40000 });
 await page.waitForTimeout(1200);
 
 const skip = page.getByRole('button', { name: 'Skip' }).first();
-if (await skip.count()) await skip.click();
+if (await skip.count()) await skip.click({ force: true }).catch(() => {});
 await page.waitForTimeout(300);
 
 /* ---- make a scene from a real sentence ------------------------------- */
@@ -86,8 +86,10 @@ await page.waitForSelector('[role="dialog"][aria-label="Animation"]', { timeout:
 await page.waitForTimeout(1400);
 await shot('61-gallery');
 
-const tiles = await page.locator('[role="dialog"] button[aria-pressed]').count();
-console.log('choices offered:', tiles);
+for (const kind of ['look', 'motion', 'transition']) {
+  const n = await page.locator(`[role="dialog"] [data-tiles="${kind}"] button`).count();
+  console.log(`${kind} tiles offered:`, n);
+}
 
 /* ---- the tiles must actually be animating ----------------------------- */
 const sample = () =>
@@ -144,9 +146,20 @@ await page.waitForSelector('[role="dialog"][aria-label="Animation"]', { timeout:
 await page.waitForTimeout(1500);
 await shot('66-gallery-figure');
 const first = await page.evaluate(
-  () => document.querySelector('[role="dialog"] button[aria-pressed] p')?.textContent ?? '',
+  () =>
+    document
+      .querySelector('[role="dialog"] [data-tiles="motion"] [data-tile-name]')
+      ?.textContent ?? '',
 );
 console.log('first preset offered for a figure:', first);
+
+/* A figure scene must lead with presets a picture can actually perform. */
+const figureGroups = await page.evaluate(() =>
+  [...document.querySelectorAll('[role="dialog"] [data-tiles="motion"]')].map((grid) =>
+    [...grid.querySelectorAll('[data-tile-name]')].map((el) => el.textContent).join(', '),
+  ),
+);
+figureGroups.forEach((g, i) => console.log(`  group ${i + 1}: ${g}`));
 await page.keyboard.press('Escape');
 await page.waitForTimeout(300);
 

@@ -27,7 +27,7 @@ await page.getByRole('button', { name: 'Try a sample paper' }).first().click();
 await page.waitForSelector('.pa-reader', { timeout: 40000 });
 await page.waitForTimeout(1200);
 const skip = page.getByRole('button', { name: 'Skip' }).first();
-if (await skip.count()) await skip.click();
+if (await skip.count()) await skip.click({ force: true }).catch(() => {});
 
 /* The storyboard now starts empty, so anything that needs scenes asks for the
    draft the same way a person would. */
