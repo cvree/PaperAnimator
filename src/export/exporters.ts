@@ -74,6 +74,11 @@ function projectImageUrls(project: Project): (string | null)[] {
       if (layer.type === 'figure' || layer.type === 'table') urls.push(layer.src);
     }
   }
+  // The board carries its own copies of the paper's figures, and an archive
+  // that left those pointing at a dead blob: URL would open empty.
+  for (const card of project.board?.cards ?? []) {
+    if (card.kind === 'image' || card.kind === 'table') urls.push(card.src);
+  }
   return urls;
 }
 

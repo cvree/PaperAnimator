@@ -16,9 +16,10 @@ import type {
 import type { PaperSession } from '@/extract/pdf';
 import { projectDuration, settledOffset } from '@/render/resolveFrame';
 import { computeIntegrity } from '@/core/integrity';
+import { useBoardUi } from '@/board/boardStore';
 
 export type Phase = 'landing' | 'processing' | 'editor';
-export type EditorView = 'compose' | 'integrity' | 'export';
+export type EditorView = 'compose' | 'board' | 'integrity' | 'export';
 export type Disclosure = 'simple' | 'studio' | 'pro';
 
 export interface SourceFocus {
@@ -332,6 +333,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   reset: () => {
     get().session?.destroy();
+    // Where the board's camera was pointing belonged to that paper.
+    useBoardUi.getState().reset();
     set({
       phase: 'landing',
       editorView: 'compose',

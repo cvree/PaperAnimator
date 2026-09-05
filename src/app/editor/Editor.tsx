@@ -10,6 +10,7 @@ import { EditorTopBar } from './EditorTopBar';
 import { SourceThread } from './SourceThread';
 import { Onboarding } from './Onboarding';
 import { MotionGallery } from './MotionGallery';
+import { BoardView } from '@/board/BoardView';
 import { Reader } from '@/reader/Reader';
 import { DragHost } from '@/reader/DragHost';
 import { useReader } from '@/reader/readerStore';
@@ -55,6 +56,18 @@ export function Editor() {
       if (typing) return;
 
       const state = useApp.getState();
+
+      /* The board has its own hands on the keyboard — space pans it, the arrows
+         nudge what is selected — so the stage's transport keys stand down while
+         it is open. Only the way back out is still ours. */
+      if (state.editorView === 'board') {
+        if (meta && e.key.toLowerCase() === 'b') {
+          e.preventDefault();
+          state.setEditorView('compose');
+        }
+        return;
+      }
+
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -106,6 +119,10 @@ export function Editor() {
             const idx = order.indexOf(state.disclosure);
             state.setDisclosure(order[(idx + 1) % order.length]);
           }
+          if (meta && e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            state.setEditorView('board');
+          }
           if (meta && e.key.toLowerCase() === 'i') {
             e.preventDefault();
             state.setEditorView(state.editorView === 'integrity' ? 'compose' : 'integrity');
@@ -143,6 +160,7 @@ export function Editor() {
     <div className="flex h-dvh flex-col overflow-hidden bg-[var(--surface-page)]">
       <EditorTopBar />
 
+      {view === 'board' && <BoardView />}
       {view === 'integrity' && <IntegrityView />}
       {view === 'export' && <ExportSheet />}
 

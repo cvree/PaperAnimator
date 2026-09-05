@@ -61,6 +61,8 @@ export function ScenePreview({ scene, styleId, aspect, before, atMs, className }
       paper: null as never,
       settings: null as never,
       scenes: before ? [before, scene] : [scene],
+      // A preview resolves one scene; the board plays no part in it.
+      board: null as never,
       style: styleId,
       createdAt: '',
       updatedAt: '',

@@ -38,6 +38,36 @@ export function EditorTopBar() {
 
       <div className="mx-1 hidden h-6 w-px shrink-0 bg-[var(--rule-hairline)] sm:block" />
 
+      {/* Two ways to build the same talk: down the page, or across a board. */}
+      <div
+        role="tablist"
+        aria-label="Workspace"
+        className="flex shrink-0 items-center gap-px rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] p-0.5"
+      >
+        {(
+          [
+            ['compose', 'Paper'],
+            ['board', 'Board'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={view === key}
+            onClick={() => setView(key)}
+            title={key === 'board' ? 'The board · ⌘B' : 'The paper'}
+            className="h-7 rounded-[2px] px-2.5 text-2xs transition-colors"
+            style={{
+              background: view === key ? 'var(--surface-inverse)' : 'transparent',
+              color: view === key ? 'var(--ink-inverse)' : 'var(--ink-tertiary)',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Undo and redo need room the phone does not have; they stay on the
           keyboard there, and the storyboard offers the same corrections. */}
       <div className="hidden shrink-0 items-center gap-0.5 sm:flex">

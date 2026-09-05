@@ -5,6 +5,8 @@
  * There is no way to construct a factual atom without saying where it came from.
  */
 
+import type { Board } from '@/board/types';
+
 export type Id<T extends string> = string & { readonly __brand: T };
 
 export type ProjectId = Id<'project'>;
@@ -590,6 +592,13 @@ export interface Project {
   paper: Paper;
   settings: ProjectSettings;
   scenes: Scene[];
+  /**
+   * The board: the same paper laid out as a place rather than as a sequence.
+   * It lives in the project so it travels with everything else — undo, the
+   * archive export, the saved file — and so a talk can be built either way
+   * round without choosing at the start.
+   */
+  board: Board;
   style: StyleId;
   createdAt: string;
   updatedAt: string;

@@ -9,8 +9,19 @@ import type { Project } from '@/core/types';
 import { extractPaper, PdfIntakeError, type Artifact, type PaperSession } from '@/extract/pdf';
 import { collectDiagnostics } from '@/core/diagnostics';
 import { buildSamplePaper } from './sample';
+import { createBoard } from '@/board/board';
+import { TalkLink } from '@/board/TalkLink';
 
 export default function App() {
+  /**
+   * A published talk can arrive as an address with the whole board inside it.
+   * That is nobody's project — there is no paper behind it and nothing to edit
+   * — so it is answered before the app proper starts.
+   */
+  const [talkHash] = useState(() =>
+    typeof location !== 'undefined' && location.hash.startsWith('#talk=') ? location.hash : null,
+  );
+
   const phase = useApp((s) => s.phase);
   const setPhase = useApp((s) => s.setPhase);
   const attachSession = useApp((s) => s.attachSession);
@@ -78,6 +89,7 @@ export default function App() {
           paper: session.paper,
           settings: DEFAULT_SETTINGS,
           scenes: [],
+          board: createBoard(),
           style: 'broadsheet',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -133,6 +145,8 @@ export default function App() {
     abort.current?.abort();
     reset();
   }, [reset]);
+
+  if (talkHash) return <TalkLink hash={talkHash} />;
 
   return (
     <>

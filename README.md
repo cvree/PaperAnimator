@@ -138,6 +138,50 @@ undo away.
 
 ---
 
+## The board
+
+The storyboard next door is a sequence: one scene, then the next. The **board** is a place.
+Open it with the *Board* tab or <kbd>⌘B</kbd> and you get a surface with no edges — scroll
+to pan, <kbd>⌘</kbd>-scroll to zoom, <kbd>⌘0</kbd> to see everything you have made. There is
+no page underneath, only a coordinate system and a camera, so it never runs out of room in
+any direction.
+
+**One switch turns the lights off.** Whiteboard or blackboard is a single control in the
+toolbar because it is a single decision, and every card reads its colours from the surface —
+so a black board is a black board, not white cards stranded on one. The grid coarsens as you
+pull back and can be dots, lines or nothing at all.
+
+**Everything on it comes from somewhere.** The left shelf is the paper: its figures, its
+tables, its numbers, its sentences. Click one and it lands on the board with the page it came
+from still attached, so a card can always answer the only question worth asking about it —
+*says who?* Click the page reference and the reader jumps to the passage. You can also write
+your own: <kbd>T</kbd> for text, <kbd>N</kbd> for a note, <kbd>R</kbd> for a shape,
+<kbd>P</kbd> to draw by hand. Cards land beside what is already there rather than on top of
+it. Everything is undoable, because the board lives in the project.
+
+**A slide is a region, not a copy.** Draw one with <kbd>F</kbd>, or select a few cards and
+frame them from the panel on the right. Move the cards and the slide changes, because the
+slide *is* the part of the board it surrounds. The order of the stops is the order of the
+talk, and the panel is where you reorder it.
+
+**Then it is interactive.** Any card can wait for a click instead of arriving with its stop,
+and a click on a card can send the camera to another stop, zoom in on the card itself, or
+open a link — one control each. Presenting flies the camera between stops, pulling back far
+enough on a long journey that the audience keeps its bearings. <kbd>→</kbd> and <kbd>←</kbd>
+move, <kbd>O</kbd> shows the whole board at once, <kbd>L</kbd> is a pointer, <kbd>B</kbd>
+blacks the screen, <kbd>N</kbd> is your notes, <kbd>F</kbd> is full screen. A stop can also
+be told to move on by itself, for a talk left running at a poster session.
+
+**Finishing it gives you a link.** *Get the link* writes the whole thing — cards, figures,
+camera, behaviour and a few hundred bytes of its own runtime — into one HTML file with the
+images inside it. Open it from a USB stick, mail it, or drop it on any static host: it is the
+same presentation, offline, with nothing phoning home. A board light enough also gets a
+second form, an address that carries the talk inside its own fragment, which opens here and
+uploads nothing to anyone. Slide numbers live in the address, so a link can point at one
+stop.
+
+---
+
 ## Exports
 
 Every format below is produced in the browser and opens in real software.
@@ -151,6 +195,7 @@ Every format below is produced in the browser and opens in real software.
 | `.srt` / `.vtt` | Caption tracks. |
 | `.txt` | Transcript: every line, timed, with the page it came from. |
 | `.paperanim` | Reopen and keep editing. Assets travel with it. |
+| `.html` | The board as a presentation that runs on its own, images inside it, no server. Written from *Get the link* — see [The board](#the-board). |
 
 Narration is read by the browser's own speech engine, which cannot be captured into a
 video file. The video is silent and carries captions; the captions, transcript and speaker
