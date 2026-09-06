@@ -1,5 +1,6 @@
 import { newId } from '@/core/id';
 import type { Figure, PaperTable, SourceRef, Statistic } from '@/core/types';
+import { NO_EFFECTS, normaliseEffects, pickShift } from './effects';
 import {
   GRID_UNIT,
   MAX_ZOOM,
@@ -7,11 +8,13 @@ import {
   STOP_H,
   STOP_W,
   type Board,
+  type BoardEffects,
   type Camera,
   type Card,
   type CardBase,
   type CardId,
   type CardKind,
+  type Outline,
   type Stop,
   type WorldPoint,
   type WorldRect,
@@ -143,10 +146,36 @@ export function createBoard(): Board {
     id: newId('board'),
     surface: 'white',
     grid: 'dots',
+    effects: { ...NO_EFFECTS },
+    look: 'plain',
     cards: [],
     edges: [],
     stops: [],
     stopAspect: 16 / 9,
+  };
+}
+
+/**
+ * A board from somewhere else — a saved project, a link written before an
+ * effect existed — made safe to render.
+ *
+ * Every field this file added since is optional in practice, so it is filled in
+ * rather than demanded: an old talk opens as the flat board it was, which is
+ * exactly what its author saw when they published it.
+ */
+export function normaliseBoard(board: Board): Board {
+  return {
+    ...board,
+    effects: normaliseEffects(board.effects),
+    look: board.look ?? 'plain',
+    grid: board.grid ?? 'dots',
+    stops: board.stops ?? [],
+    edges: board.edges ?? [],
+    cards: (board.cards ?? []).map((card) => ({
+      ...card,
+      depth: typeof card.depth === 'number' && Number.isFinite(card.depth) ? card.depth : 0,
+      outline: (card.outline ?? 'none') as Outline,
+    })),
   };
 }
 
@@ -163,6 +192,8 @@ function base(rect: WorldRect, z: number, source: SourceRef | null = null): Card
     action: null,
     note: '',
     source,
+    depth: 0,
+    outline: 'none',
   };
 }
 
@@ -336,11 +367,25 @@ export function cardById(board: Board, id: CardId): Card | undefined {
   return board.cards.find((c) => c.id === id);
 }
 
-/** Topmost card under a world point, which is what a click means. */
-export function pickCard(board: Board, p: WorldPoint): Card | null {
+/**
+ * Topmost card under a world point, which is what a click means.
+ *
+ * Depth is taken off the point rather than added to the card, because a card at
+ * depth is *drawn* somewhere other than where it lives — and the only thing a
+ * person can reasonably be asked to click is the thing they can see.
+ */
+export function pickCard(
+  board: Board,
+  p: WorldPoint,
+  cam?: Camera,
+  fx?: BoardEffects,
+): Card | null {
   let hit: Card | null = null;
   for (const c of board.cards) {
-    if (rectHit(c.rect, p) && (!hit || c.z > hit.z)) hit = c;
+    const s = cam && fx ? pickShift(c, cam, fx) : ZERO;
+    if (rectHit(c.rect, { x: p.x - s.dx, y: p.y - s.dy }) && (!hit || c.z > hit.z)) hit = c;
   }
   return hit;
 }
+
+const ZERO = { dx: 0, dy: 0 };

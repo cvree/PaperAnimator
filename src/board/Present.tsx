@@ -15,7 +15,17 @@ import {
   rectContains,
   stopSteps,
 } from './board';
-import { cardHtml, edgesSvg, surfaceVars } from './paint';
+import { cardHtml, cardShellVars, edgesSvg, surfaceVars } from './paint';
+import {
+  atmosphereHtml,
+  depthFactor,
+  depthShift,
+  effectDefsSvg,
+  effectVars,
+  effectsAreOff,
+  focusBlur,
+  normaliseEffects,
+} from './effects';
 import { useBoardUi } from './boardStore';
 import type { Board, Card, Stop } from './types';
 
@@ -50,6 +60,9 @@ export function Present({
   const [notesOpen, setNotesOpen] = useState(false);
   const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
   const [laserOn, setLaserOn] = useState(false);
+
+  const fx = useMemo(() => normaliseEffects(board.effects), [board.effects]);
+  const plain = effectsAreOff(fx);
 
   const stops = board.stops;
   const stop: Stop | null = stops[stopIndex] ?? null;
@@ -217,11 +230,31 @@ export function Present({
     <div
       ref={host}
       className="bx-root fixed inset-0 z-[60]"
-      style={{ ...(surfaceVars(board.surface) as CSSProperties), cursor: laserOn ? 'none' : 'default' }}
+      data-mode="present"
+      data-bloom={fx.bloom > 0 ? '1' : '0'}
+      data-reveal={fx.reveal ? '1' : '0'}
+      style={{
+        ...(surfaceVars(board.surface) as CSSProperties),
+        ...(effectVars(fx, board.surface) as CSSProperties),
+        cursor: laserOn ? 'none' : 'default',
+      }}
       onPointerMove={(e) => {
-        if (!laserOn) return;
         const rect = host.current?.getBoundingClientRect();
-        if (rect) setLaser({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        if (!rect) return;
+        /* The light and the pointer are the same gesture: whatever a presenter
+           is indicating with the cursor is what the room should be lit on. */
+        if (fx.spotlight > 0 && host.current) {
+          host.current.style.setProperty(
+            '--bx-spot-x',
+            `${(((e.clientX - rect.left) / rect.width) * 100).toFixed(2)}%`,
+          );
+          host.current.style.setProperty(
+            '--bx-spot-y',
+            `${(((e.clientY - rect.top) / rect.height) * 100).toFixed(2)}%`,
+          );
+        }
+        if (!laserOn) return;
+        setLaser({ x: e.clientX - rect.left, y: e.clientY - rect.top });
       }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
@@ -237,6 +270,15 @@ export function Present({
       role="application"
       aria-label={`Presenting: ${title}`}
     >
+      {!plain && <span dangerouslySetInnerHTML={{ __html: effectDefsSvg() }} />}
+      {fx.aurora > 0 && (
+        <div
+          className="bx-atmos bx-atmos-back"
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: atmosphereHtml(fx, 'back') }}
+        />
+      )}
+
       <div className="bx-world" style={world}>
         <div
           className="pointer-events-none absolute left-0 top-0"
@@ -246,33 +288,57 @@ export function Present({
         {cards.map((card) => {
           const shown = visible(card);
           const focused = inFocus(card);
+          /* Depth reads hardest here, because the camera is always moving:
+             what is near the eye slides past what is behind the board. */
+          const m = depthFactor(card.depth, fx);
+          const shift = m ? depthShift(card.rect, m, camera) : ZERO_SHIFT;
+          const blur = focusBlur(card.depth, !focused && !overview, fx) / Math.max(0.0001, camera.zoom);
           return (
             <div
               key={card.id}
               data-card-id={card.id}
-              className="bx-card bx-fade"
+              data-outline={card.outline ?? 'none'}
+              data-shown={shown ? '1' : '0'}
+              className={blur > 0.05 ? 'bx-card bx-fade bx-deep' : 'bx-card bx-fade'}
               style={{
-                left: card.rect.x,
-                top: card.rect.y,
+                left: card.rect.x + shift.dx,
+                top: card.rect.y + shift.dy,
                 width: card.rect.w,
                 height: card.rect.h,
                 zIndex: Math.round(card.z),
-                transform: `${card.rotation ? `rotate(${card.rotation}deg)` : ''} ${shown ? '' : 'translateY(24px)'}`.trim(),
+                transform: `${card.rotation ? `rotate(${card.rotation}deg)` : ''} ${shown ? '' : 'translateY(24px) scale(0.965)'}`.trim(),
                 opacity: shown ? (focused ? 1 : 0.22) : 0,
                 pointerEvents: shown && card.action ? 'auto' : 'none',
                 cursor: card.action ? 'pointer' : undefined,
+                ...(cardShellVars(card, board.surface) as CSSProperties),
+                ...(blur > 0.05
+                  ? ({ ['--bx-blur' as string]: `${blur.toFixed(2)}px` } as CSSProperties)
+                  : null),
               }}
-              dangerouslySetInnerHTML={{ __html: cardHtml(card, board.surface) }}
-            />
+            >
+              <div
+                className="h-full w-full"
+                style={{ pointerEvents: 'none' }}
+                dangerouslySetInnerHTML={{ __html: cardHtml(card, board.surface) }}
+              />
+            </div>
           );
         })}
       </div>
 
-      {blackout && <div className="absolute inset-0" style={{ background: '#000' }} />}
+      {!plain && (
+        <div
+          className="bx-atmos bx-atmos-front"
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: atmosphereHtml(fx, 'front') }}
+        />
+      )}
+
+      {blackout && <div className="absolute inset-0 z-[99]" style={{ background: '#000' }} />}
 
       {laserOn && laser && (
         <span
-          className="pointer-events-none absolute"
+          className="pointer-events-none absolute z-[98]"
           style={{
             left: laser.x - 9,
             top: laser.y - 9,
@@ -287,7 +353,7 @@ export function Present({
 
       {/* ---------- chrome ---------- */}
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-[100] flex items-end justify-between gap-4 p-4"
         style={{ color: 'var(--bx-ink-soft)' }}
       >
         <div className="pointer-events-auto flex items-center gap-2">
@@ -323,7 +389,7 @@ export function Present({
 
       {total > 1 && (
         <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px]"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[96] h-[3px]"
           style={{ background: 'color-mix(in oklch, var(--bx-ink) 12%, transparent)' }}
         >
           <div
@@ -339,7 +405,7 @@ export function Present({
 
       {notesOpen && (
         <aside
-          className="absolute bottom-16 left-4 max-h-[40vh] w-[26rem] max-w-[80vw] overflow-y-auto rounded-[var(--radius-md)] p-4"
+          className="absolute bottom-16 left-4 z-[97] max-h-[40vh] w-[26rem] max-w-[80vw] overflow-y-auto rounded-[var(--radius-md)] p-4"
           style={{
             background: 'var(--bx-ground-edge)',
             color: 'var(--bx-ink)',
@@ -357,7 +423,7 @@ export function Present({
       )}
 
       {stops.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
+        <div className="absolute inset-0 z-[96] flex items-center justify-center p-8 text-center">
           <p className="max-w-[40ch] text-base leading-[1.6]" style={{ color: 'var(--bx-ink-soft)' }}>
             This board has no stops yet. Leave with Escape, draw a slide with <b>F</b> around the
             part you want to talk about, and the run will build itself in the order you draw them.
@@ -367,6 +433,8 @@ export function Present({
     </div>
   );
 }
+
+const ZERO_SHIFT = { dx: 0, dy: 0 };
 
 function Chip({
   children,

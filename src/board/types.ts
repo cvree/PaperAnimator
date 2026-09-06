@@ -73,6 +73,27 @@ export type CardAction =
 
 export type TextRoleOnBoard = 'title' | 'heading' | 'body' | 'quote' | 'label' | 'mono';
 
+/**
+ * How a card is edged.
+ *
+ * A whiteboard is a place where people draw boxes round things, so the edges
+ * are the vocabulary: a rule is a rule, a circled thing was circled by hand,
+ * a taped thing was brought from somewhere else. Each one is drawn from the
+ * card's own tone, so an outline never introduces a colour the board has not
+ * already agreed to.
+ */
+export type Outline = 'none' | 'hairline' | 'sketch' | 'marker' | 'tape' | 'glow' | 'cut';
+
+export const OUTLINES: { id: Outline; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'hairline', label: 'Rule' },
+  { id: 'sketch', label: 'Drawn by hand' },
+  { id: 'marker', label: 'Circled in marker' },
+  { id: 'tape', label: 'Taped on' },
+  { id: 'glow', label: 'Lit' },
+  { id: 'cut', label: 'Cut out' },
+];
+
 export interface CardBase {
   id: CardId;
   rect: WorldRect;
@@ -96,6 +117,17 @@ export interface CardBase {
   note: string;
   /** Where in the paper this came from, when it came from the paper. */
   source: SourceRef | null;
+  /**
+   * How far from the eye, −1 (behind the board) to +1 (in front of it). 0 is
+   * the board itself, where everything sits until somebody says otherwise.
+   *
+   * Depth is not decoration: it is what parallax reads off, what the lens
+   * focuses on, and how a background stops competing with the point. It costs
+   * nothing when it is zero, which it is by default.
+   */
+  depth: number;
+  /** The card's edge. See {@link Outline}. */
+  outline: Outline;
 }
 
 export interface TextCard extends CardBase {
@@ -181,10 +213,46 @@ export interface Stop {
   autoAdvanceMs: number;
 }
 
+/**
+ * The board's atmosphere — everything that is true of the room rather than of
+ * any one card.
+ *
+ * Every field is a 0–1 dial and every one of them is off at zero, so a board
+ * that asks for nothing renders exactly the flat, fast surface it rendered
+ * before any of this existed. They are dials rather than switches because the
+ * difference between a good effect and a bad one is almost always how much of
+ * it there is.
+ */
+export interface BoardEffects {
+  /** Depth drift: cards at different depths slide past each other as you move. */
+  parallax: number;
+  /** The lens. Cards away from what you are looking at go soft. */
+  focus: number;
+  /** A light that follows the cursor, and rests on the stop while presenting. */
+  spotlight: number;
+  /** Ink and accents bloom, the way a lit sign does. */
+  bloom: number;
+  /** The tooth of the surface: paper grain on white, chalk dust on black. */
+  grain: number;
+  /** A slow colour field drifting behind the grid. */
+  aurora: number;
+  /** The corners fall away, so the middle is where the eye goes. */
+  vignette: number;
+  /** Drawings draw themselves on, and cards arrive rather than appear. */
+  reveal: boolean;
+}
+
+/** The name of the look these dials came from, for the picker to show. */
+export type EffectPreset = 'plain' | 'desk' | 'studio' | 'cinema' | 'neon' | 'custom';
+
 export interface Board {
   id: BoardId;
   surface: Surface;
   grid: Grid;
+  /** See {@link BoardEffects}. */
+  effects: BoardEffects;
+  /** Which look {@link effects} came from, or `custom` once it was adjusted. */
+  look: EffectPreset;
   cards: Card[];
   edges: Edge[];
   stops: Stop[];

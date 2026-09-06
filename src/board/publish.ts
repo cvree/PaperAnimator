@@ -1,7 +1,22 @@
 import type { Project } from '@/core/types';
-import { boardCss, cardHtml, cardTransform, edgesSvg, escapeHtml, SURFACES } from './paint';
-import { stopSteps } from './board';
-import type { Board, Card } from './types';
+import {
+  boardCss,
+  cardHtml,
+  cardShellStyle,
+  cardTransform,
+  edgesSvg,
+  escapeHtml,
+  SURFACES,
+} from './paint';
+import { normaliseBoard, stopSteps } from './board';
+import {
+  atmosphereHtml,
+  effectDefsSvg,
+  effectVars,
+  effectsAreOff,
+  normaliseEffects,
+} from './effects';
+import type { Board, BoardEffects, Card } from './types';
 
 /**
  * The finished thing, as one file.
@@ -91,7 +106,19 @@ interface TalkModel {
   title: string;
   surface: string;
   stops: { title: string; rect: number[]; notes: string; auto: number; steps: number }[];
-  cards: { rect: number[]; step: number; action: unknown; note: string; stop: number }[];
+  cards: {
+    rect: number[];
+    step: number;
+    action: unknown;
+    note: string;
+    stop: number;
+    /** −1 to 1. The runtime turns this into parallax and into focus. */
+    depth: number;
+    /** Carried so the runtime can compose a transform without losing it. */
+    rot: number;
+  }[];
+  /** The room, so a published talk looks like the board it was built on. */
+  fx: BoardEffects;
   notes: boolean;
   autoplay: boolean;
 }
@@ -137,6 +164,8 @@ export function buildStandalone(
 ): string {
   const board = project.board;
   const palette = SURFACES[board.surface];
+  const fx = normaliseEffects(board.effects);
+  const plain = effectsAreOff(fx);
   const resolve = (src: string | null) => (src ? (assets.get(src) ?? src) : null);
   const cards = [...board.cards].sort((a, b) => a.z - b.z);
 
@@ -158,7 +187,10 @@ export function buildStandalone(
       action: publishedAction(board, c),
       note: options.includeNotes ? c.note : '',
       stop: stopIndexFor(board, c),
+      depth: c.depth ?? 0,
+      rot: c.rotation ?? 0,
     })),
+    fx,
     notes: options.includeNotes,
     autoplay: options.autoplay,
   };
@@ -166,11 +198,9 @@ export function buildStandalone(
   const body = cards
     .map(
       (card, i) =>
-        `<div class="bx-card bx-fade" data-i="${i}" style="${escapeHtml(cardTransform(card))}">${cardHtml(
-          card,
-          board.surface,
-          resolve,
-        )}</div>`,
+        `<div class="bx-card bx-fade" data-i="${i}" data-outline="${card.outline ?? 'none'}" style="${escapeHtml(
+          `${cardTransform(card)};${cardShellStyle(card, board.surface)}`,
+        )}">${cardHtml(card, board.surface, resolve)}</div>`,
     )
     .join('\n');
 
@@ -185,6 +215,7 @@ export function buildStandalone(
     '--bx-mat': palette.mat,
     '--bx-mat-ink': palette.matInk,
     '--bx-shadow': palette.shadow,
+    ...effectVars(fx, board.surface),
   })
     .map(([k, v]) => `${k}:${v}`)
     .join(';');
@@ -211,11 +242,16 @@ ${chromeCss()}
 </style>
 </head>
 <body>
-<div class="bx-root" id="bx-stage">
+<div class="bx-root" id="bx-stage" data-mode="present" data-bloom="${fx.bloom > 0 ? 1 : 0}" data-reveal="${
+    fx.reveal ? 1 : 0
+  }">
+${plain ? '' : effectDefsSvg()}
+${fx.aurora > 0 ? `<div class="bx-atmos bx-atmos-back" aria-hidden="true">${atmosphereHtml(fx, 'back')}</div>` : ''}
   <div class="bx-world" id="bx-world">
 ${edgesSvg(board)}
 ${body}
   </div>
+${plain ? '' : `<div class="bx-atmos bx-atmos-front" aria-hidden="true">${atmosphereHtml(fx, 'front')}</div>`}
   <div class="bx-laser" id="bx-laser" hidden></div>
   <div class="bx-black" id="bx-black" hidden></div>
   <aside class="bx-notes" id="bx-notes" hidden></aside>
@@ -246,7 +282,7 @@ ${runtime()}
 function chromeCss(): string {
   return `
 .bx-chrome{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;
-  align-items:flex-end;padding:14px 16px;gap:12px;pointer-events:none;
+  align-items:flex-end;padding:14px 16px;gap:12px;pointer-events:none;z-index:100;
   font:400 13px/1 system-ui,-apple-system,sans-serif;opacity:0;transition:opacity 260ms}
 .bx-root:hover .bx-chrome,.bx-chrome:focus-within,.bx-chrome[data-show="1"]{opacity:1}
 .bx-group{display:flex;align-items:center;gap:6px;pointer-events:auto}
@@ -255,7 +291,7 @@ function chromeCss(): string {
 .bx-chrome button:hover{background:color-mix(in oklch,var(--bx-ink) 16%,transparent);color:var(--bx-ink)}
 .bx-chrome button[data-on="1"]{background:var(--bx-accent);color:var(--bx-ground)}
 .bx-count{padding:0 6px;color:var(--bx-ink-faint);font-variant-numeric:tabular-nums}
-.bx-bar{position:absolute;left:0;right:0;bottom:0;height:3px;
+.bx-bar{position:absolute;left:0;right:0;bottom:0;height:3px;z-index:96;
   background:color-mix(in oklch,var(--bx-ink) 12%,transparent)}
 .bx-bar i{display:block;height:100%;width:0;background:var(--bx-accent);
   transition:width 420ms cubic-bezier(.2,.7,.2,1)}
@@ -267,7 +303,7 @@ function chromeCss(): string {
   overflow:auto;padding:16px;border-radius:6px;background:var(--bx-ground-edge);color:var(--bx-ink);
   border:1px solid var(--bx-rule);white-space:pre-wrap;z-index:97;
   font:400 14px/1.6 system-ui,-apple-system,sans-serif;box-shadow:0 20px 60px var(--bx-shadow)}
-.bx-hint{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);margin:0;
+.bx-hint{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);margin:0;z-index:96;
   color:var(--bx-ink-faint);font:400 13px/1 system-ui,sans-serif;transition:opacity 600ms}
 .bx-hint[hidden]{display:none}
 .bx-card[data-act="1"]{cursor:pointer}
@@ -299,6 +335,45 @@ function runtime(): string {
   var index = 0, step = 0, overview = false, pointing = false, raf = 0, timer = 0;
   var cam = { x: 0, y: 0, zoom: 1 };
 
+  /* The room, and what it costs. A talk published with every dial at zero pays
+     for none of this: the lists below come out empty and the loops never run. */
+  var fx = talk.fx || {};
+  var GAIN = 0.16;
+  var shown = [];
+  var moved = [];   /* cards whose depth makes them move with the camera */
+  for (var d = 0; d < talk.cards.length; d++) {
+    var depth = talk.cards[d].depth || 0;
+    talk.cards[d].m = fx.parallax ? Math.max(-1, Math.min(1, depth)) * fx.parallax * GAIN : 0;
+    shown.push(true);
+    if (talk.cards[d].m) moved.push(d);
+  }
+
+  /* How soft a card is, in screen pixels: depth alone a little, being outside
+     the point under discussion a lot. Same arithmetic as the editor's. */
+  function blurOf(i, mine) {
+    if (!fx.focus) return 0;
+    var depth = Math.abs(Math.max(-1, Math.min(1, talk.cards[i].depth || 0)));
+    return Math.min(13, (depth * 5 + (mine ? 0 : 7)) * fx.focus);
+  }
+
+  /**
+   * Where a card is drawn. Rotation lives here rather than in the style
+   * attribute because a transform written by hand would otherwise wipe it, and
+   * a card that lost its angle the moment the talk started would be a bug
+   * nobody could explain.
+   */
+  function place(i) {
+    var model = talk.cards[i], el = cards[i], t = '';
+    if (model.m) {
+      var r = model.rect;
+      t += 'translate(' + ((r[0] + r[2] / 2 - cam.x) * model.m).toFixed(1) + 'px,' +
+        ((r[1] + r[3] / 2 - cam.y) * model.m).toFixed(1) + 'px) ';
+    }
+    if (!shown[i]) t += 'translateY(24px) scale(0.965) ';
+    if (model.rot) t += 'rotate(' + model.rot + 'deg)';
+    el.style.transform = t;
+  }
+
   function size() { return { w: stage.clientWidth, h: stage.clientHeight }; }
 
   function bounds() {
@@ -324,6 +399,9 @@ function runtime(): string {
     world.style.transform =
       'translate(' + v.w / 2 + 'px,' + v.h / 2 + 'px) scale(' + cam.zoom + ') translate(' +
       -cam.x + 'px,' + -cam.y + 'px)';
+    /* Parallax is a function of where the camera is, so it is recomputed with
+       the camera and not with the slide. Only the cards that have a depth. */
+    for (var i = 0; i < moved.length; i++) place(moved[i]);
   }
 
   function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
@@ -364,13 +442,17 @@ function runtime(): string {
     for (var i = 0; i < cards.length; i++) {
       var model = talk.cards[i];
       var mine = overview || inStop(model.rect, here);
-      var shown = overview || model.step === 0 || (mine && model.step <= step);
       var el = cards[i];
-      el.style.opacity = shown ? (mine || overview ? '1' : '0.22') : '0';
-      el.style.pointerEvents = shown && model.action ? 'auto' : 'none';
+      shown[i] = overview || model.step === 0 || (mine && model.step <= step);
+      el.style.opacity = shown[i] ? (mine || overview ? '1' : '0.22') : '0';
+      el.style.pointerEvents = shown[i] && model.action ? 'auto' : 'none';
+      el.setAttribute('data-shown', shown[i] ? '1' : '0');
       if (model.action) el.setAttribute('data-act', '1');
-      if (!shown) el.style.transform = 'translateY(24px)';
-      else el.style.transform = '';
+      /* Blur is held in world units, so it deepens as the camera pushes in —
+         which is what a lens does, and costs nothing per frame to say. */
+      var b = blurOf(i, mine);
+      el.style.filter = b ? 'blur(' + (b / Math.max(0.02, cam.zoom)).toFixed(2) + 'px)' : '';
+      place(i);
     }
     var stop = here;
     var steps = stop ? stop.steps : 0;
@@ -500,8 +582,12 @@ function runtime(): string {
 
   stage.addEventListener('pointermove', function (e) {
     chrome.setAttribute('data-show', '1');
-    if (!pointing) return;
     var r = stage.getBoundingClientRect();
+    if (fx.spotlight) {
+      stage.style.setProperty('--bx-spot-x', ((e.clientX - r.left) / r.width * 100).toFixed(2) + '%');
+      stage.style.setProperty('--bx-spot-y', ((e.clientY - r.top) / r.height * 100).toFixed(2) + '%');
+    }
+    if (!pointing) return;
     laser.style.left = (e.clientX - r.left - 9) + 'px';
     laser.style.top = (e.clientY - r.top - 9) + 'px';
   });
@@ -638,7 +724,8 @@ export async function decodeTalkLink(
     }
     const parsed = JSON.parse(json) as { v: number; title: string; board: Board };
     if (!parsed?.board?.cards) return null;
-    return { title: parsed.title, board: parsed.board };
+    // A link written before a field existed still opens, as the board it was.
+    return { title: parsed.title, board: normaliseBoard(parsed.board) };
   } catch {
     return null;
   }

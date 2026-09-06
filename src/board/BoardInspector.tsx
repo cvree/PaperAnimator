@@ -9,6 +9,7 @@ import { toneColors } from './paint';
 import { newId } from '@/core/id';
 import type { Project } from '@/core/types';
 import {
+  OUTLINES,
   TONES,
   type Board,
   type Card,
@@ -234,6 +235,44 @@ export function BoardInspector() {
                 />
               ))}
             </div>
+          </Field>
+
+          <Field label="Edge">
+            <select
+              value={one?.outline ?? 'none'}
+              onChange={(e) =>
+                editCards('Change the edge', (card) => {
+                  card.outline = e.target.value as typeof card.outline;
+                })
+              }
+              className="input"
+            >
+              {OUTLINES.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {/* Depth is one control because it is one question: is this thing in
+              front of the point, behind it, or is it the point? */}
+          <Field label="Depth">
+            <select
+              value={String(one ? one.depth : 0)}
+              onChange={(e) =>
+                editCards('Change depth', (card) => {
+                  card.depth = Number(e.target.value);
+                })
+              }
+              className="input"
+            >
+              {DEPTHS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
           </Field>
 
           {one?.kind === 'text' && (
@@ -489,9 +528,10 @@ export function BoardInspector() {
       {cards.length === 0 && !stop && (
         <section className="p-3">
           <p className="text-2xs leading-[1.6] text-[var(--ink-faint)]">
-            Nothing selected. Drop something from the paper, type with <b>T</b>, leave a note with{' '}
-            <b>N</b>, draw with <b>P</b>, and frame a slide with <b>F</b>. Scroll to pan, ⌘-scroll to
-            zoom, ⌘0 to see it all.
+            Nothing selected. Double-click the board to write on it, or type with <b>T</b>, leave a
+            note with <b>N</b>, draw with <b>P</b>, and frame a slide with <b>F</b>. Scroll to pan,
+            ⌘-scroll or pinch to zoom, ⌘0 to see it all and ⌘2 to see what you are working on. Drag
+            with <b>⌥</b> held to ignore the guides.
           </p>
         </section>
       )}
@@ -520,6 +560,18 @@ function linksThese(edge: Edge, pair: CardId[]): boolean {
 function connected(board: Board, pair: CardId[]): boolean {
   return pair.length === 2 && board.edges.some((e) => linksThese(e, pair));
 }
+
+/**
+ * Five planes rather than a slider. A number between −1 and 1 is a thing to
+ * fiddle with; "behind the point" is a thing to decide.
+ */
+const DEPTHS: { value: number; label: string }[] = [
+  { value: -1, label: 'Far behind' },
+  { value: -0.45, label: 'Behind' },
+  { value: 0, label: 'On the board' },
+  { value: 0.45, label: 'In front' },
+  { value: 1, label: 'Nearest the eye' },
+];
 
 const KIND_LABEL: Record<Card['kind'], string> = {
   text: 'Text',

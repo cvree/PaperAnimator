@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '@/state/store';
@@ -26,9 +27,31 @@ import {
   unionRect,
   zoomAt,
 } from './board';
-import { cardHtml, edgesSvg, gridStyle, surfaceVars, TEXT_ROLES } from './paint';
+import { cardHtml, cardShellVars, edgesSvg, gridStyle, smoothStroke, surfaceVars, TEXT_ROLES } from './paint';
+import {
+  atmosphereHtml,
+  depthFactor,
+  depthShift,
+  dragDivisor,
+  drawnRect,
+  effectDefsSvg,
+  effectVars,
+  effectsAreOff,
+  focusBlur,
+  normaliseEffects,
+} from './effects';
+import { alignDrag, type Guide } from './guides';
 import { normaliseRect, useBoardUi, type Tool } from './boardStore';
-import type { Board, Card, CardId, InkCard, Stop, StopId, WorldPoint, WorldRect } from './types';
+import type {
+  Board,
+  Card,
+  CardId,
+  InkCard,
+  Stop,
+  StopId,
+  WorldPoint,
+  WorldRect,
+} from './types';
 
 /**
  * The board itself: a surface with no edges.
@@ -38,18 +61,30 @@ import type { Board, Card, CardId, InkCard, Stop, StopId, WorldPoint, WorldRect 
  * grid coarsens as you pull back so a hundred metres of board still reads as a
  * surface rather than as grey noise.
  *
- * Every gesture that changes the project commits once, at the end. A drag that
- * wrote to the store on every frame would put four hundred entries in the undo
- * stack and recompute integrity four hundred times, so the drag is drawn from
- * local state and the project hears about it when you let go.
+ * Three rules keep it feeling like one thing under your hand. Every gesture
+ * that changes the project commits once, at the end — a drag that wrote to the
+ * store on every frame would put four hundred entries in the undo stack and
+ * recompute integrity four hundred times, so the drag is drawn from local state
+ * and the project hears about it when you let go. Every gesture is read at most
+ * once a frame, no matter how fast the pointer reports. And every gesture stops
+ * where the eye expects rather than where the arithmetic lands: momentum after
+ * a pan, alignment while you drag, and depth taken off the pointer before a
+ * click is resolved, so a card at depth is grabbed where it is *drawn*.
  */
 
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 
 type Gesture =
-  | { kind: 'pan'; x: number; y: number }
+  | { kind: 'pan'; x: number; y: number; t: number; vx: number; vy: number }
+  | { kind: 'pinch'; distance: number; x: number; y: number }
   | { kind: 'marquee'; origin: WorldPoint; additive: boolean }
-  | { kind: 'move'; origin: WorldPoint; ids: CardId[]; stopId: StopId | null }
+  | {
+      kind: 'move';
+      origin: WorldPoint;
+      ids: CardId[];
+      stopId: StopId | null;
+      stopRect: WorldRect | null;
+    }
   | {
       kind: 'resize';
       id: CardId;
@@ -57,12 +92,16 @@ type Gesture =
       start: WorldRect;
       startScale: number;
       startRotation: number;
+      shift: { dx: number; dy: number };
     }
   | { kind: 'stop-draw'; origin: WorldPoint }
   | { kind: 'pen'; points: number[] }
   | null;
 
 const SNAP_UNIT = 10;
+
+/** How close, in screen pixels, an edge has to be before it counts as aligned. */
+const GUIDE_REACH = 7;
 
 export function BoardSurface() {
   const project = useApp((s) => s.project);
@@ -79,6 +118,8 @@ export function BoardSurface() {
   const host = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture>(null);
   const spaceHeld = useRef(false);
+  /** Live pointers in client coordinates, so two fingers can be told from one. */
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
   const [ghost, setGhost] = useState<{
     dx: number;
     dy: number;
@@ -94,8 +135,11 @@ export function BoardSurface() {
   const [marquee, setMarqueeRect] = useState<WorldRect | null>(null);
   const [stopDraft, setStopDraft] = useState<WorldRect | null>(null);
   const [strokes, setStrokes] = useState<number[][]>([]);
+  const [guides, setGuides] = useState<Guide[]>([]);
 
   const board = project?.board;
+  const fx = useMemo(() => normaliseEffects(board?.effects), [board?.effects]);
+  const plain = effectsAreOff(fx);
 
   /* ---- viewport size --------------------------------------------------- */
   useLayoutEffect(() => {
@@ -141,17 +185,14 @@ export function BoardSurface() {
       const ui = useBoardUi.getState();
       const rect = el.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
-        const factor = Math.exp(-e.deltaY * 0.0022);
-        ui.setCamera(
-          zoomAt(
-            ui.camera,
-            { x: e.clientX - rect.left, y: e.clientY - rect.top },
-            factor,
-            rect.width,
-            rect.height,
-          ),
+        // A trackpad pinch arrives here as a ctrl-wheel, which is why the two
+        // gestures share a path. Both are eased rather than applied raw.
+        ui.zoomTowards(
+          { x: e.clientX - rect.left, y: e.clientY - rect.top },
+          Math.exp(-e.deltaY * 0.0022),
         );
       } else {
+        ui.stopMotion();
         ui.panBy(-e.deltaX, -e.deltaY);
       }
     };
@@ -261,6 +302,18 @@ export function BoardSurface() {
         if (bounds) ui.flyTo(cameraFor(bounds, ui.viewport.w, ui.viewport.h));
         return;
       }
+      /* ⌘2 goes to what you are working on, which is almost never the whole
+         board — the one shortcut people reach for and rarely get. */
+      if (meta && e.key === '2') {
+        e.preventDefault();
+        const rects = current.cards.filter((c) => ui.selection.includes(c.id)).map((c) => c.rect);
+        const target =
+          unionRect(rects) ??
+          current.stops.find((s) => s.id === ui.selectedStopId)?.rect ??
+          boardBounds(current);
+        if (target) ui.flyTo(cameraFor(target, ui.viewport.w, ui.viewport.h, 0.86));
+        return;
+      }
       if (meta && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         ui.select(current.cards.map((c) => c.id));
@@ -323,17 +376,146 @@ export function BoardSurface() {
 
   /* ---- pointer ---------------------------------------------------------- */
 
+  /**
+   * Pointers report far faster than a screen refreshes, and every report used
+   * to redraw every card on the board. The newest one is kept and read once a
+   * frame instead; nothing is lost, because a gesture only ever cares about
+   * where the pointer is *now*.
+   */
+  const pending = useRef<{ x: number; y: number; alt: boolean; shift: boolean } | null>(null);
+  const frame = useRef(0);
+
+  const readPending = useCallback(() => {
+    frame.current = 0;
+    const at = pending.current;
+    pending.current = null;
+    const g = gesture.current;
+    const current = useApp.getState().project?.board;
+    if (!at || !g || !current) return;
+    const ui = useBoardUi.getState();
+    const point = toWorld(at.x, at.y);
+
+    switch (g.kind) {
+      case 'pan': {
+        const now = performance.now();
+        const dt = Math.max(1, now - g.t);
+        const dx = at.x - g.x;
+        const dy = at.y - g.y;
+        ui.panBy(dx, dy);
+        // Velocity is smoothed, or one stuttering frame at the end of a long
+        // drag would decide where the whole board flies to.
+        gesture.current = {
+          kind: 'pan',
+          x: at.x,
+          y: at.y,
+          t: now,
+          vx: g.vx * 0.32 + (dx / dt) * 0.68,
+          vy: g.vy * 0.32 + (dy / dt) * 0.68,
+        };
+        break;
+      }
+      case 'pinch': {
+        const two = [...pointers.current.values()];
+        if (two.length < 2) break;
+        const distance = Math.hypot(two[0].x - two[1].x, two[0].y - two[1].y);
+        const cx = (two[0].x + two[1].x) / 2;
+        const cy = (two[0].y + two[1].y) / 2;
+        const rect = host.current?.getBoundingClientRect();
+        if (rect && g.distance > 8 && distance > 8) {
+          ui.panBy(cx - g.x, cy - g.y);
+          ui.setCamera(
+            zoomAt(
+              useBoardUi.getState().camera,
+              { x: cx - rect.left, y: cy - rect.top },
+              distance / g.distance,
+              rect.width,
+              rect.height,
+            ),
+          );
+        }
+        gesture.current = { kind: 'pinch', distance, x: cx, y: cy };
+        break;
+      }
+      case 'marquee':
+        setMarqueeRect(normaliseRect(g.origin, point));
+        break;
+      case 'move': {
+        const free = at.alt;
+        const raw = { dx: point.x - g.origin.x, dy: point.y - g.origin.y };
+        const aligned = free
+          ? { ...raw, guides: [] as Guide[] }
+          : alignDrag(
+              current,
+              g.ids,
+              raw.dx,
+              raw.dy,
+              GUIDE_REACH / Math.max(0.0001, ui.camera.zoom),
+              g.stopRect,
+            );
+        const onX = aligned.guides.some((line) => line.axis === 'x');
+        const onY = aligned.guides.some((line) => line.axis === 'y');
+        setGuides(aligned.guides);
+        setGhost({
+          // An edge that has found another edge is not then rounded off it.
+          dx: onX ? aligned.dx : snap(aligned.dx, !free, SNAP_UNIT),
+          dy: onY ? aligned.dy : snap(aligned.dy, !free, SNAP_UNIT),
+          ids: g.ids,
+          stopId: g.stopId,
+        });
+        break;
+      }
+      case 'resize': {
+        const at3 = { x: point.x - g.shift.dx, y: point.y - g.shift.dy };
+        const next = resizeRect(g.start, g.handle, at3, at.shift);
+        const ratio = g.start.w > 0 ? next.rect.w / g.start.w : 1;
+        setOverride({
+          id: g.id,
+          rect: next.rect,
+          scale: next.scales ? g.startScale * ratio : g.startScale,
+          rotation: next.rotation ?? g.startRotation,
+        });
+        break;
+      }
+      case 'stop-draw':
+        setStopDraft(normaliseRect(g.origin, point));
+        break;
+      case 'pen':
+        setStrokes([[...g.points]]);
+        break;
+    }
+  }, [toWorld]);
+
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button === 2) return;
     const ui = useBoardUi.getState();
     const el = host.current;
     if (!el || !board) return;
+    ui.stopMotion();
     el.setPointerCapture(e.pointerId);
-    const point = toWorld(e.clientX, e.clientY);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    /* Two fingers are a camera, whatever tool is in your hand. */
+    if (pointers.current.size === 2) {
+      const two = [...pointers.current.values()];
+      gesture.current = {
+        kind: 'pinch',
+        distance: Math.hypot(two[0].x - two[1].x, two[0].y - two[1].y),
+        x: (two[0].x + two[1].x) / 2,
+        y: (two[0].y + two[1].y) / 2,
+      };
+      setGhost(null);
+      setMarqueeRect(null);
+      setGuides([]);
+      setStrokes([]);
+      return;
+    }
+
+    const point = toWorld(e.clientX, e.clientY);
     const panning = tool === 'hand' || spaceHeld.current || e.button === 1;
     if (panning) {
-      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY };
+      gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY, t: performance.now(), vx: 0, vy: 0 };
       return;
     }
 
@@ -349,6 +531,9 @@ export function BoardSurface() {
           start: { ...card.rect },
           startScale: card.scale,
           startRotation: card.rotation,
+          // Depth is held still for the length of the gesture, so a corner does
+          // not slide away from the finger that is pulling it.
+          shift: depthShift(card.rect, depthFactor(card.depth, fx), ui.camera),
         };
         setOverride({ id: card.id, rect: { ...card.rect }, scale: card.scale, rotation: card.rotation });
         return;
@@ -379,14 +564,14 @@ export function BoardSurface() {
     }
 
     const stopHit = target.dataset.stopId as StopId | undefined;
-    const hit = pickCard(board, point);
+    const hit = pickCard(board, point, ui.camera, fx);
 
     if (hit && !stopHit) {
       if (e.shiftKey) ui.toggleInSelection(hit.id);
       else if (!ui.selection.includes(hit.id)) ui.select([hit.id]);
       if (hit.source) focusSource(hit.source, 'layer');
       const ids = useBoardUi.getState().selection;
-      gesture.current = { kind: 'move', origin: point, ids, stopId: null };
+      gesture.current = { kind: 'move', origin: point, ids, stopId: null, stopRect: null };
       setGhost({ dx: 0, dy: 0, ids, stopId: null });
       return;
     }
@@ -398,7 +583,13 @@ export function BoardSurface() {
         // Dragging a slide takes its contents with it; ⌥ moves the frame alone,
         // which is how you re-crop a stop without disturbing the board.
         const ids = e.altKey ? [] : cardsInStop(board, stop).map((c) => c.id);
-        gesture.current = { kind: 'move', origin: point, ids, stopId: stop.id };
+        gesture.current = {
+          kind: 'move',
+          origin: point,
+          ids,
+          stopId: stop.id,
+          stopRect: { ...stop.rect },
+        };
         setGhost({ dx: 0, dy: 0, ids, stopId: stop.id });
       }
       return;
@@ -414,60 +605,58 @@ export function BoardSurface() {
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (fx.spotlight > 0) moveLight(host.current, e.clientX, e.clientY);
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
     const g = gesture.current;
     if (!g || !board) return;
-    const point = toWorld(e.clientX, e.clientY);
 
-    switch (g.kind) {
-      case 'pan':
-        useBoardUi.getState().panBy(e.clientX - g.x, e.clientY - g.y);
-        gesture.current = { kind: 'pan', x: e.clientX, y: e.clientY };
-        break;
-      case 'marquee':
-        setMarqueeRect(normaliseRect(g.origin, point));
-        break;
-      case 'move': {
-        const free = e.altKey;
-        setGhost({
-          dx: snap(point.x - g.origin.x, !free, SNAP_UNIT),
-          dy: snap(point.y - g.origin.y, !free, SNAP_UNIT),
-          ids: g.ids,
-          stopId: g.stopId,
-        });
-        break;
-      }
-      case 'resize': {
-        const next = resizeRect(g.start, g.handle, point, e.shiftKey);
-        const ratio = g.start.w > 0 ? next.rect.w / g.start.w : 1;
-        setOverride({
-          id: g.id,
-          rect: next.rect,
-          scale: next.scales ? g.startScale * ratio : g.startScale,
-          rotation: next.rotation ?? g.startRotation,
-        });
-        break;
-      }
-      case 'stop-draw':
-        setStopDraft(normaliseRect(g.origin, point));
-        break;
-      case 'pen': {
-        g.points.push(point.x, point.y);
-        setStrokes([[...g.points]]);
-        break;
+    /* A stroke keeps every sample the pointer took between two frames, so a
+       fast line comes back as a line rather than as three long chords. */
+    if (g.kind === 'pen') {
+      const events = e.nativeEvent.getCoalescedEvents?.() ?? [];
+      const samples = events.length ? events : [e.nativeEvent];
+      for (const sample of samples) {
+        const p = toWorld(sample.clientX, sample.clientY);
+        g.points.push(p.x, p.y);
       }
     }
+
+    pending.current = { x: e.clientX, y: e.clientY, alt: e.altKey, shift: e.shiftKey };
+    if (!frame.current) frame.current = requestAnimationFrame(readPending);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    pointers.current.delete(e.pointerId);
     const g = gesture.current;
+    if (g?.kind === 'pinch' && pointers.current.size >= 1) {
+      // One finger left: carry on as a pan rather than dropping the gesture.
+      const rest = [...pointers.current.values()][0];
+      gesture.current = { kind: 'pan', x: rest.x, y: rest.y, t: performance.now(), vx: 0, vy: 0 };
+      return;
+    }
     gesture.current = null;
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    pending.current = null;
     host.current?.releasePointerCapture(e.pointerId);
     if (!g || !board) return;
 
     switch (g.kind) {
+      case 'pan':
+        /* A hand that came to rest before it let go meant to stop there. The
+           speed it was travelling at half a second ago is not a throw. */
+        if (performance.now() - g.t < 90) useBoardUi.getState().glide(g.vx, g.vy);
+        break;
+      case 'pinch':
+        break;
       case 'marquee': {
         if (marquee && (marquee.w > 4 || marquee.h > 4)) {
-          const inside = board.cards.filter((c) => rectsOverlap(c.rect, marquee)).map((c) => c.id);
+          const cam = useBoardUi.getState().camera;
+          const inside = board.cards
+            .filter((c) => rectsOverlap(drawnRect(c, cam, fx), marquee))
+            .map((c) => c.id);
           const ui = useBoardUi.getState();
           ui.select(g.additive ? [...new Set([...ui.selection, ...inside])] : inside);
         }
@@ -477,12 +666,16 @@ export function BoardSurface() {
       case 'move': {
         const delta = ghost;
         setGhost(null);
+        setGuides([]);
         if (!delta || (delta.dx === 0 && delta.dy === 0)) break;
         editBoard('Move', (b) => {
           for (const card of b.cards) {
             if (!g.ids.includes(card.id) || card.locked) continue;
-            card.rect.x += delta.dx;
-            card.rect.y += delta.dy;
+            // A card at depth is drawn away from where it lives, so the amount
+            // it *lives* by is the amount the pointer moved, divided back out.
+            const divisor = dragDivisor(card, fx);
+            card.rect.x += delta.dx / divisor;
+            card.rect.y += delta.dy / divisor;
           }
           if (g.stopId) {
             const stop = b.stops.find((s) => s.id === g.stopId);
@@ -571,6 +764,19 @@ export function BoardSurface() {
     [editBoard],
   );
 
+  /** Two clicks on bare board is the shortest route to a word on it. */
+  const onDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!board || tool !== 'select') return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-card-id]') || target.dataset.stopId) return;
+    const ui = useBoardUi.getState();
+    const point = toWorld(e.clientX, e.clientY);
+    if (pickCard(board, point, ui.camera, fx)) return;
+    const created = createAt('text', point);
+    ui.select([created]);
+    ui.edit(created);
+  };
+
   const commitText = useCallback(
     (id: CardId, text: string) => {
       editBoard(
@@ -607,25 +813,44 @@ export function BoardSurface() {
   const cursor =
     tool === 'hand'
       ? 'grab'
-      : tool === 'pen'
-        ? 'crosshair'
-        : tool === 'select'
-          ? 'default'
-          : 'crosshair';
+    : tool === 'pen'
+      ? 'crosshair'
+      : tool === 'select'
+        ? 'default'
+        : 'crosshair';
 
   return (
     <div
       ref={host}
       className="bx-root"
-      style={{ ...(surfaceVars(board.surface) as CSSProperties), ...grid, cursor }}
+      data-mode="edit"
+      data-bloom={fx.bloom > 0 ? '1' : '0'}
+      data-reveal={fx.reveal ? '1' : '0'}
+      style={{
+        ...(surfaceVars(board.surface) as CSSProperties),
+        ...(effectVars(fx, board.surface) as CSSProperties),
+        ...grid,
+        cursor,
+        ['--bx-k' as string]: String(k),
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onDoubleClick={onDoubleClick}
       onContextMenu={(e) => e.preventDefault()}
       role="application"
       aria-label="Board"
     >
+      {!plain && <span dangerouslySetInnerHTML={{ __html: effectDefsSvg() }} />}
+      {fx.aurora > 0 && (
+        <div
+          className="bx-atmos bx-atmos-back"
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: atmosphereHtml(fx, 'back') }}
+        />
+      )}
+
       <div className="bx-world" style={world}>
         {board.stops.map((stop, i) => (
           <StopFrame
@@ -650,13 +875,21 @@ export function BoardSurface() {
           const shown: Card = over
             ? ({ ...card, rect: over.rect, scale: over.scale, rotation: over.rotation } as Card)
             : card;
+          const m = depthFactor(card.depth, fx);
+          const dx = moving ? ghost.dx / (1 + m) : 0;
+          const dy = moving ? ghost.dy / (1 + m) : 0;
+
+          const shift = m
+            ? depthShift({ ...shown.rect, x: shown.rect.x + dx, y: shown.rect.y + dy }, m, camera)
+            : ZERO_SHIFT;
           return (
             <CardView
               key={card.id}
               card={shown}
               surface={board.surface}
-              dx={moving ? ghost.dx : 0}
-              dy={moving ? ghost.dy : 0}
+              dx={dx + shift.dx}
+              dy={dy + shift.dy}
+              blur={focusBlur(card.depth, false, fx) * k}
               k={k}
               selected={selection.includes(card.id)}
               only={selection.length === 1 && selection[0] === card.id}
@@ -666,6 +899,32 @@ export function BoardSurface() {
             />
           );
         })}
+
+        {guides.map((line, i) => (
+          <div
+            key={`${line.axis}-${i}`}
+            className="pointer-events-none absolute"
+            style={
+              line.axis === 'x'
+                ? {
+                    left: line.at,
+                    top: line.from,
+                    width: 0,
+                    height: Math.max(1, line.to - line.from),
+                    borderLeft: `${k}px dashed var(--bx-accent)`,
+                    zIndex: 900002,
+                  }
+                : {
+                    left: line.from,
+                    top: line.at,
+                    height: 0,
+                    width: Math.max(1, line.to - line.from),
+                    borderTop: `${k}px dashed var(--bx-accent)`,
+                    zIndex: 900002,
+                  }
+            }
+          />
+        ))}
 
         {marquee && (
           <div
@@ -702,9 +961,9 @@ export function BoardSurface() {
             style={{ left: 0, top: 0, width: 1, height: 1, zIndex: 900001 }}
           >
             {strokes.map((points, i) => (
-              <polyline
+              <path
                 key={i}
-                points={pointsToSvg(points)}
+                d={smoothStroke(points)?.d ?? ''}
                 fill="none"
                 stroke="var(--bx-ink)"
                 strokeWidth={4}
@@ -716,6 +975,14 @@ export function BoardSurface() {
           </svg>
         )}
       </div>
+
+      {!plain && (
+        <div
+          className="bx-atmos bx-atmos-front"
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: atmosphereHtml(fx, 'front') }}
+        />
+      )}
     </div>
   );
 }
@@ -724,11 +991,14 @@ export function BoardSurface() {
    Pieces
    ========================================================================== */
 
+const ZERO_SHIFT = { dx: 0, dy: 0 };
+
 function CardView({
   card,
   surface,
   dx,
   dy,
+  blur,
   k,
   selected,
   only,
@@ -740,6 +1010,8 @@ function CardView({
   surface: Board['surface'];
   dx: number;
   dy: number;
+  /** How soft this card is, already in world units. */
+  blur: number;
   /** World units per screen pixel, so chrome stays the same size at any zoom. */
   k: number;
   selected: boolean;
@@ -761,7 +1033,8 @@ function CardView({
   return (
     <div
       data-card-id={card.id}
-      className="bx-card"
+      data-outline={card.outline ?? 'none'}
+      className={blur > 0.05 ? 'bx-card bx-deep' : 'bx-card'}
       style={{
         left: card.rect.x + dx,
         top: card.rect.y + dy,
@@ -771,6 +1044,8 @@ function CardView({
         transform: card.rotation ? `rotate(${card.rotation}deg)` : undefined,
         outline: selected ? `${2 * k}px solid var(--bx-accent)` : undefined,
         outlineOffset: `${3 * k}px`,
+        ...(cardShellVars(card, surface) as CSSProperties),
+        ...(blur > 0.05 ? ({ ['--bx-blur' as string]: `${blur.toFixed(2)}px` } as CSSProperties) : null),
       }}
       onDoubleClick={(e) => {
         if (!editable) return;
@@ -1020,10 +1295,17 @@ function isTyping(target: EventTarget | null): boolean {
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
 }
 
-function pointsToSvg(points: number[]): string {
-  const parts: string[] = [];
-  for (let i = 0; i < points.length; i += 2) parts.push(`${points[i]},${points[i + 1]}`);
-  return parts.join(' ');
+/**
+ * The spotlight is moved by writing two custom properties, not by rendering.
+ * A light that followed the cursor through React would redraw every card on the
+ * board sixty times a second to move a gradient.
+ */
+function moveLight(el: HTMLElement | null, clientX: number, clientY: number): void {
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  el.style.setProperty('--bx-spot-x', `${(((clientX - rect.left) / rect.width) * 100).toFixed(2)}%`);
+  el.style.setProperty('--bx-spot-y', `${(((clientY - rect.top) / rect.height) * 100).toFixed(2)}%`);
 }
 
 /** A corner scales the card and its type; an edge only changes the wrap. */

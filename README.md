@@ -142,9 +142,16 @@ undo away.
 
 The storyboard next door is a sequence: one scene, then the next. The **board** is a place.
 Open it with the *Board* tab or <kbd>⌘B</kbd> and you get a surface with no edges — scroll
-to pan, <kbd>⌘</kbd>-scroll to zoom, <kbd>⌘0</kbd> to see everything you have made. There is
-no page underneath, only a coordinate system and a camera, so it never runs out of room in
-any direction.
+to pan, <kbd>⌘</kbd>-scroll or pinch to zoom, <kbd>⌘0</kbd> to see everything you have made
+and <kbd>⌘2</kbd> to see what you are working on. There is no page underneath, only a
+coordinate system and a camera, so it never runs out of room in any direction.
+
+**It moves like a thing rather than like a form.** A flick of the pan keeps going and comes
+to rest; a zoom eases toward where you asked for rather than stepping there, so a mouse wheel
+and a trackpad feel like the same board. Drag a card and it tells you when an edge has found
+another edge, and stays on it — hold <kbd>⌥</kbd> to ignore that and place it by hand. The
+card under the cursor says so before you press it, two clicks on bare board start writing on
+it, and no gesture is read more than once a frame however fast the pointer reports.
 
 **One switch turns the lights off.** Whiteboard or blackboard is a single control in the
 toolbar because it is a single decision, and every card reads its colours from the surface —
@@ -159,6 +166,25 @@ your own: <kbd>T</kbd> for text, <kbd>N</kbd> for a note, <kbd>R</kbd> for a sha
 <kbd>P</kbd> to draw by hand. Cards land beside what is already there rather than on top of
 it. Everything is undoable, because the board lives in the project.
 
+**Depth, edges and a room to put them in.** Every card can be edged the way people edge
+things on a real board — a rule, a box drawn by hand, a circle scrawled in marker, two strips
+of tape, a lit halo, a paper cut-out — and each one is drawn from the card's own colour, so
+an edge never introduces a colour the board has not already agreed to. Every card also sits
+on a plane: far behind, behind, on the board, in front, or nearest the eye. Depth is not
+decoration. Cards at different depths slide past each other as the camera moves, the lens
+softens what is off the plane you are looking at, and a card at depth is *grabbed where it is
+drawn* — the same arithmetic places it, picks it and drags it, so nothing you can see is
+something you cannot hold.
+
+**The room itself has a look.** *Effects* in the toolbar offers five: **Plain** is a board
+and nothing else, **Paper** adds grain and corners that fall away, **Studio** adds a light
+that follows the cursor and a lens that picks a plane, **Cinema** takes the lights down, and
+**Neon** makes the ink glow over a slow colour field. Behind them are the seven dials each is
+made of — depth, lens, spotlight, glow, grain, colour field, vignette — and moving one makes
+the look yours. All of it is off at zero: a board that asks for nothing renders exactly the
+flat, fast surface it did before any of this existed, with no extra layers and no work per
+frame. Anyone who has asked their machine for less motion gets none of it.
+
 **A slide is a region, not a copy.** Draw one with <kbd>F</kbd>, or select a few cards and
 frame them from the panel on the right. Move the cards and the slide changes, because the
 slide *is* the part of the board it surrounds. The order of the stops is the order of the
@@ -170,11 +196,14 @@ open a link — one control each. Presenting flies the camera between stops, pul
 enough on a long journey that the audience keeps its bearings. <kbd>→</kbd> and <kbd>←</kbd>
 move, <kbd>O</kbd> shows the whole board at once, <kbd>L</kbd> is a pointer, <kbd>B</kbd>
 blacks the screen, <kbd>N</kbd> is your notes, <kbd>F</kbd> is full screen. A stop can also
-be told to move on by itself, for a talk left running at a poster session.
+be told to move on by itself, for a talk left running at a poster session. Presenting is
+where depth earns its keep: the camera is always moving, so what is near the eye slides past
+what is behind the board, what is not being discussed goes soft rather than merely dim, and a
+drawing draws itself on when its slide arrives.
 
 **Finishing it gives you a link.** *Get the link* writes the whole thing — cards, figures,
-camera, behaviour and a few hundred bytes of its own runtime — into one HTML file with the
-images inside it. Open it from a USB stick, mail it, or drop it on any static host: it is the
+camera, behaviour, depth, edges, the room and a few hundred bytes of its own runtime — into
+one HTML file with the images inside it. Open it from a USB stick, mail it, or drop it on any static host: it is the
 same presentation, offline, with nothing phoning home. A board light enough also gets a
 second form, an address that carries the talk inside its own fragment, which opens here and
 uploads nothing to anyone. Slide numbers live in the address, so a link can point at one
@@ -231,6 +260,7 @@ real browser against `npm run preview`.
 | `tools/playback.mjs` | Plays the exported video and samples frames from it |
 | `tools/a11y.mjs` | Mobile layout, reduced motion, and a keyboard-only path |
 | `tools/theme.mjs` | The dark Press appearance across all three phases |
+| `tools/board.mjs` | The board under the hand: momentum, alignment guides, eased zoom, every edge, the five rooms, depth separating as the camera moves, and the published file agreeing with all of it |
 | `tools/landing.mjs` | The landing page, scrolled |
 
 ```sh

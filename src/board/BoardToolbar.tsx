@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useApp } from '@/state/store';
 import { Button } from '@/ui/Button';
 import { boardBounds, cameraFor, clampZoom } from './board';
+import { EffectsMenu } from './EffectsMenu';
 import { useBoardUi, type Tool } from './boardStore';
 import type { Surface } from './types';
 
@@ -139,6 +140,8 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
         <option value="lines">Lines</option>
         <option value="none">Plain</option>
       </select>
+
+      <EffectsMenu />
 
       <div className="ml-auto flex items-center gap-1.5">
         <div className="hidden items-center gap-0.5 sm:flex">

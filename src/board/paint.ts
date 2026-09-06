@@ -1,3 +1,4 @@
+import { effectsCss } from './effects';
 import type { Board, Card, Surface, Tone } from './types';
 
 /**
@@ -125,7 +126,7 @@ export function boardCss(): string {
 .bx-root{position:absolute;inset:0;overflow:hidden;background:var(--bx-ground);color:var(--bx-ink);
   -webkit-font-smoothing:antialiased;touch-action:none;}
 .bx-grid{position:absolute;inset:0;pointer-events:none;}
-.bx-world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;will-change:transform;}
+.bx-world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;will-change:transform;z-index:1;}
 .bx-card{position:absolute;transform-origin:50% 50%;box-sizing:border-box;}
 .bx-card[data-hidden="1"]{opacity:0;pointer-events:none;}
 .bx-fade{transition:opacity 420ms cubic-bezier(.2,.7,.2,1),transform 420ms cubic-bezier(.2,.7,.2,1);}
@@ -168,13 +169,55 @@ export function boardCss(): string {
 .bx-stat em{font-family:${MONO};font-style:normal;font-size:20px;opacity:0.7;}
 
 .bx-ink{width:100%;height:100%;display:block;overflow:visible;}
+.bx-ink path{stroke-dasharray:var(--bx-len,none);}
 
 .bx-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;}
 .bx-edge{stroke:var(--bx-ink-faint);fill:none;stroke-width:3;}
 .bx-edge-label{font-family:${SANS};font-size:20px;fill:var(--bx-ink-soft);}
 
 .bx-cite{font-family:${MONO};font-size:17px;color:var(--bx-ink-faint);letter-spacing:0.02em;}
+
+/* The thing under the cursor says so before you press, so a board with fifty
+   cards on it never makes you guess which one you are about to pick up. */
+.bx-root[data-mode="edit"] .bx-card:hover{
+  box-shadow:0 0 0 calc(1.5px * var(--bx-k,1)) color-mix(in oklch,var(--bx-accent) 38%,transparent);}
+.bx-root[data-mode="edit"] .bx-card[data-held="1"]{cursor:grabbing;}
+
+${effectsCss()}
 `.trim();
+}
+
+/* ============================================================================
+   A card's shell — the part the editor, the presenter and the file all build
+   themselves, and therefore the part they have to agree about.
+   ========================================================================== */
+
+/**
+ * The variables an edge is drawn from.
+ *
+ * An outline never introduces a colour: it borrows the card's own tone. But a
+ * note is already *filled* with its tone, and a yellow line round a yellow
+ * square is not a line — so a card that carries its colour gets that colour
+ * drawn harder rather than repeated, which keeps the family and finds the
+ * contrast. A card with no fill of its own is edged in the board's ink.
+ */
+export function cardShellVars(card: Card, surface: Surface): Record<string, string> {
+  const t = toneColors(card.tone, surface);
+  return {
+    '--bx-edge':
+      t.fill === 'transparent'
+        ? 'var(--bx-ink)'
+        : `color-mix(in oklch, ${t.fill} 58%, var(--bx-ink))`,
+    // The edge is part of the card, so it grows when the card's type does.
+    '--bx-out': String(Math.max(0.5, Math.min(3, card.scale || 1))),
+  };
+}
+
+/** The shell's own style declarations, for the published page. */
+export function cardShellStyle(card: Card, surface: Surface): string {
+  return Object.entries(cardShellVars(card, surface))
+    .map(([k, v]) => `${k}:${v}`)
+    .join(';');
 }
 
 /** Variables the board root carries, so every card reads the same palette. */
@@ -231,6 +274,39 @@ export function gridStyle(
 /* ============================================================================
    Cards
    ========================================================================== */
+
+/**
+ * A drawn stroke, as a curve rather than as the raw sampling of a pointer.
+ *
+ * Every other point becomes a control point and the midpoints become the
+ * on-curve ones, which is the cheapest smoothing there is and the only one a
+ * hand can tell apart from none: the line a person drew comes back as the line
+ * they meant, at whatever rate their browser happened to sample it.
+ *
+ * The length comes back too, because the only other way to get it is to put the
+ * path in a document and ask, and this file has no document.
+ */
+export function smoothStroke(
+  points: number[],
+  ox = 0,
+  oy = 0,
+): { d: string; length: number } | null {
+  const n = Math.floor(points.length / 2);
+  if (n < 2) return null;
+  const px = (i: number) => points[i * 2] - ox;
+  const py = (i: number) => points[i * 2 + 1] - oy;
+
+  let d = `M${px(0).toFixed(1)} ${py(0).toFixed(1)}`;
+  let length = 0;
+  for (let i = 1; i < n - 1; i++) {
+    const mx = (px(i) + px(i + 1)) / 2;
+    const my = (py(i) + py(i + 1)) / 2;
+    d += `Q${px(i).toFixed(1)} ${py(i).toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+  }
+  d += `L${px(n - 1).toFixed(1)} ${py(n - 1).toFixed(1)}`;
+  for (let i = 1; i < n; i++) length += Math.hypot(px(i) - px(i - 1), py(i) - py(i - 1));
+  return { d, length: Math.ceil(length) + 8 };
+}
 
 export function escapeHtml(value: string): string {
   return value
@@ -355,14 +431,11 @@ export function cardHtml(
       const h = Math.max(1, card.rect.h);
       const paths = card.strokes
         .map((points) => {
-          if (points.length < 4) return '';
-          let d = '';
-          for (let i = 0; i < points.length; i += 2) {
-            d += `${i === 0 ? 'M' : 'L'}${(points[i] - card.rect.x).toFixed(1)} ${(
-              points[i + 1] - card.rect.y
-            ).toFixed(1)}`;
-          }
-          return `<path d="${d}" />`;
+          const stroke = smoothStroke(points, card.rect.x, card.rect.y);
+          if (!stroke) return '';
+          // The length rides along so a drawing can draw itself on without
+          // anybody having to measure it in a browser first.
+          return `<path d="${stroke.d}" style="--bx-len:${stroke.length.toFixed(0)}" />`;
         })
         .join('');
       const stroke = t.fill === 'transparent' ? 'var(--bx-ink)' : t.fill;
