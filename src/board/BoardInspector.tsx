@@ -5,17 +5,20 @@ import { cameraFor, cardsInStop, stopAround, topZ } from './board';
 import { stopForSelection } from './BoardSurface';
 import { useBoardUi } from './boardStore';
 import { makeStop } from './board';
-import { toneColors } from './paint';
+import { revealFor, toneColors } from './paint';
 import { newId } from '@/core/id';
 import type { Project } from '@/core/types';
 import {
+  REVEALS,
   TONES,
   type Board,
   type Card,
   type CardId,
   type CardAction,
   type Edge,
+  type Reveal,
   type StopId,
+  type Surface,
   type Tone,
 } from './types';
 
@@ -328,6 +331,26 @@ export function BoardInspector() {
             </select>
           </Field>
 
+          <Field label="Arrives as">
+            <select
+              value={one?.reveal ?? 'auto'}
+              onChange={(e) =>
+                editCards('Change the arrival', (card) => {
+                  card.reveal = e.target.value as Reveal;
+                })
+              }
+              className="input capitalize"
+            >
+              {REVEALS.map((r) => (
+                <option key={r} value={r}>
+                  {r === 'auto'
+                    ? `Suits the card${one ? ` — ${REVEAL_WORDS[revealFor(one)]}` : ''}`
+                    : REVEAL_WORDS[r]}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <Field label="Clicking it">
             <select
               value={actionValue(one?.action ?? null)}
@@ -462,6 +485,15 @@ export function BoardInspector() {
               }
             >
               Back
+            </Small>
+            <Small
+              onClick={() =>
+                editCards('Lift', (card) => {
+                  card.raised = !card.raised;
+                })
+              }
+            >
+              {one?.raised ? 'Lay flat' : 'Lift'}
             </Small>
             <Small
               onClick={() =>
@@ -630,6 +662,21 @@ function Move({
   );
 }
 
+/** What each arrival is called where somebody has to pick one. */
+const REVEAL_WORDS: Record<string, string> = {
+  auto: 'Suits the card',
+  fade: 'Fades in',
+  rise: 'Rises',
+  pop: 'Pops',
+  zoom: 'Focuses',
+  blur: 'Sharpens',
+  wipe: 'Wipes across',
+  cascade: 'Word by word',
+  flip: 'Tips up',
+  drop: 'Drops in',
+  draw: 'Draws itself',
+};
+
 function ToneSwatch({
   tone,
   surface,
@@ -637,7 +684,7 @@ function ToneSwatch({
   onClick,
 }: {
   tone: Tone;
-  surface: 'white' | 'black';
+  surface: Surface;
   active: boolean;
   onClick: () => void;
 }) {

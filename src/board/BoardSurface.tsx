@@ -771,7 +771,10 @@ function CardView({
         transform: card.rotation ? `rotate(${card.rotation}deg)` : undefined,
         outline: selected ? `${2 * k}px solid var(--bx-accent)` : undefined,
         outlineOffset: `${3 * k}px`,
+        borderRadius: selected ? `${3 * k}px` : undefined,
+        boxShadow: selected ? `0 0 ${26 * k}px var(--bx-glow)` : undefined,
       }}
+      data-raised={card.raised ? '1' : undefined}
       onDoubleClick={(e) => {
         if (!editable) return;
         e.stopPropagation();
@@ -969,29 +972,37 @@ function StopFrame({
         top: stop.rect.y + dy,
         width: stop.rect.w,
         height: stop.rect.h,
-        border: `${(selected ? 3 : 1.5) * k}px solid var(--bx-accent)`,
-        borderRadius: 4 * k,
-        opacity: selected ? 0.95 : 0.4,
+        border: `${(selected ? 2.5 : 1.25) * k}px solid var(--bx-accent)`,
+        borderRadius: 8 * k,
+        background: selected
+          ? 'color-mix(in oklch, var(--bx-accent) 5%, transparent)'
+          : 'transparent',
+        boxShadow: selected ? `0 0 ${70 * k}px var(--bx-glow)` : undefined,
+        opacity: selected ? 1 : 0.42,
         zIndex: 0,
+        transition: 'opacity 180ms ease',
       }}
     >
       <span
         data-stop-id={stop.id}
         style={{
           position: 'absolute',
-          left: -1.5 * k,
-          top: -26 * k,
-          height: 24 * k,
+          left: 0,
+          top: -30 * k,
+          height: 26 * k,
           display: 'flex',
           alignItems: 'center',
-          padding: `0 ${8 * k}px`,
-          background: 'var(--bx-accent)',
-          color: 'var(--bx-ground)',
-          borderRadius: `${3 * k}px ${3 * k}px 0 0`,
-          font: `500 ${14 * k}px/1 system-ui, sans-serif`,
+          gap: 6 * k,
+          padding: `0 ${10 * k}px`,
+          backgroundImage: 'linear-gradient(120deg, var(--bx-accent), var(--bx-accent-alt))',
+          color: 'var(--bx-accent-ink)',
+          borderRadius: `${999 * k}px`,
+          font: `600 ${14 * k}px/1 system-ui, sans-serif`,
+          letterSpacing: '0.01em',
           whiteSpace: 'nowrap',
           maxWidth: stop.rect.w,
           overflow: 'hidden',
+          boxShadow: `0 ${2 * k}px ${10 * k}px var(--bx-shadow)`,
         }}
       >
         {index + 1}. {stop.title}

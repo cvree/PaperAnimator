@@ -146,10 +146,14 @@ to pan, <kbd>⌘</kbd>-scroll to zoom, <kbd>⌘0</kbd> to see everything you hav
 no page underneath, only a coordinate system and a camera, so it never runs out of room in
 any direction.
 
-**One switch turns the lights off.** Whiteboard or blackboard is a single control in the
-toolbar because it is a single decision, and every card reads its colours from the surface —
-so a black board is a black board, not white cards stranded on one. The grid coarsens as you
-pull back and can be dots, lines or nothing at all.
+**One control sets the whole look.** The board is a lit room, and the light it is lit by is
+the single decision that touches every card: **Paper**, **Sand**, **Slate**, **Chalk**,
+**Midnight** and **Blueprint** each carry a full set of colours and their own accent, so a
+black board is a black board rather than white cards stranded on one. Each swatch in the
+toolbar is that palette in miniature — its ground, its ink and its accent — because that is
+the only honest way to preview a decision this wide. The ground is lit rather than flat, and
+presenting adds a fall-off at the corners so the eye goes to the middle. The grid coarsens as
+you pull back and can be dots, lines or nothing at all.
 
 **Everything on it comes from somewhere.** The left shelf is the paper: its figures, its
 tables, its numbers, its sentences. Click one and it lands on the board with the page it came
@@ -164,13 +168,27 @@ frame them from the panel on the right. Move the cards and the slide changes, be
 slide *is* the part of the board it surrounds. The order of the stops is the order of the
 talk, and the panel is where you reorder it.
 
+**Things arrive; they do not appear.** A headline reads in a word at a time, a figure focuses
+out of a blur, a statistic runs up to its own number, and a stroke you drew by hand draws
+itself. Nothing has to be set for any of that: each kind of card knows the arrival that suits
+it, and cards within a stop come in down the page rather than all at once. One control in the
+toolbar sets the pace of the lot — **calm**, **lively**, **cinematic**, or **still**, which is
+a legitimate answer — and any single card can be told to rise, pop, wipe, tip up or drop in
+instead. Every one of them is a CSS animation defined in `src/board/paint.ts`, which the
+published file uses too, so the entrance you liked in rehearsal is the entrance the file you
+mail out performs.
+
 **Then it is interactive.** Any card can wait for a click instead of arriving with its stop,
 and a click on a card can send the camera to another stop, zoom in on the card itself, or
 open a link — one control each. Presenting flies the camera between stops, pulling back far
 enough on a long journey that the audience keeps its bearings. <kbd>→</kbd> and <kbd>←</kbd>
-move, <kbd>O</kbd> shows the whole board at once, <kbd>L</kbd> is a pointer, <kbd>B</kbd>
-blacks the screen, <kbd>N</kbd> is your notes, <kbd>F</kbd> is full screen. A stop can also
-be told to move on by itself, for a talk left running at a poster session.
+move, <kbd>O</kbd> shows the whole board at once with its stops drawn on it, <kbd>L</kbd> is a
+pointer, <kbd>S</kbd> is a spotlight that darkens everything but a circle round the cursor,
+<kbd>B</kbd> blacks the screen, <kbd>N</kbd> is your notes, <kbd>F</kbd> is full screen. The
+controls fade out a few seconds after you stop moving the mouse, and the cursor goes with
+them — a talk being recorded should not have our chrome in it. Whatever the current stop does
+not frame is dimmed and thrown out of focus, so an audience always knows where to look. A stop
+can also be told to move on by itself, for a talk left running at a poster session.
 
 **Finishing it gives you a link.** *Get the link* writes the whole thing — cards, figures,
 camera, behaviour and a few hundred bytes of its own runtime — into one HTML file with the
@@ -230,6 +248,7 @@ real browser against `npm run preview`.
 | `tools/exports.mjs` | Runs every export for real and reports the bytes and file types |
 | `tools/playback.mjs` | Plays the exported video and samples frames from it |
 | `tools/a11y.mjs` | Mobile layout, reduced motion, and a keyboard-only path |
+| `tools/board.mjs` | The board built from a real paper, photographed in all six surfaces, then presented and published — the same talk in the editor, in the presenter and in the file you hand out |
 | `tools/theme.mjs` | The dark Press appearance across all three phases |
 | `tools/landing.mjs` | The landing page, scrolled |
 

@@ -46,12 +46,62 @@ export interface Camera {
 }
 
 /**
- * Whiteboard or blackboard. It is one switch because it is one decision: a
- * room with the lights on, or a room with the lights off. Every card reads its
- * colours from the surface, so the switch restyles the whole board at once
- * instead of leaving black text stranded on black.
+ * The room the talk happens in.
+ *
+ * It began as one switch — lights on, lights off — and that is still the
+ * decision most people make. The rest are the same idea taken seriously: a
+ * board is a lit surface, and the light it is lit by is the single thing that
+ * sets the whole look. Every card reads its colours from here, so changing the
+ * surface restyles the board at once instead of leaving black text stranded on
+ * black.
  */
-export type Surface = 'white' | 'black';
+export type Surface = 'white' | 'black' | 'slate' | 'midnight' | 'blueprint' | 'sand';
+
+export const SURFACE_ORDER: Surface[] = ['white', 'sand', 'slate', 'black', 'midnight', 'blueprint'];
+
+/**
+ * How hard the board moves.
+ *
+ * Motion is a house style, not a per-card decision: a deck where every element
+ * arrives its own way is a deck nobody can follow. One control sets the pace of
+ * every entrance, and `none` is a legitimate answer — some rooms, and some
+ * people, want the thing to simply be there.
+ */
+export type Motion = 'none' | 'calm' | 'lively' | 'cinematic';
+
+export const MOTIONS: Motion[] = ['none', 'calm', 'lively', 'cinematic'];
+
+/**
+ * How a card arrives. `auto` picks by what the card is — a headline reads in
+ * word by word, a figure focuses, a drawn stroke draws itself — which is right
+ * often enough that most cards never need this set.
+ */
+export type Reveal =
+  | 'auto'
+  | 'fade'
+  | 'rise'
+  | 'pop'
+  | 'zoom'
+  | 'blur'
+  | 'wipe'
+  | 'cascade'
+  | 'flip'
+  | 'drop'
+  | 'draw';
+
+export const REVEALS: Reveal[] = [
+  'auto',
+  'fade',
+  'rise',
+  'pop',
+  'zoom',
+  'blur',
+  'wipe',
+  'cascade',
+  'flip',
+  'drop',
+  'draw',
+];
 
 /** The paper-grid under the cards. Off is a legitimate choice. */
 export type Grid = 'dots' | 'lines' | 'none';
@@ -96,6 +146,17 @@ export interface CardBase {
   note: string;
   /** Where in the paper this came from, when it came from the paper. */
   source: SourceRef | null;
+  /**
+   * How it arrives when the talk reaches it. Absent means `auto`, which is what
+   * every card made before this existed gets — the board reads it defensively
+   * so an older project opens looking better rather than looking broken.
+   */
+  reveal?: Reveal;
+  /**
+   * Lifts the card off the board with a real shadow. Off by default, because a
+   * board where everything floats is a board where nothing does.
+   */
+  raised?: boolean;
 }
 
 export interface TextCard extends CardBase {
@@ -190,6 +251,8 @@ export interface Board {
   stops: Stop[];
   /** Sticks the presentation's aspect to a shape so a stop frames predictably. */
   stopAspect: number;
+  /** The pace of every entrance. Absent means `lively`. */
+  motion?: Motion;
 }
 
 /* ============================================================================

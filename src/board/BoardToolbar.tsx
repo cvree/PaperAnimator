@@ -3,7 +3,8 @@ import { useApp } from '@/state/store';
 import { Button } from '@/ui/Button';
 import { boardBounds, cameraFor, clampZoom } from './board';
 import { useBoardUi, type Tool } from './boardStore';
-import type { Surface } from './types';
+import { paletteOf } from './paint';
+import { MOTIONS, SURFACE_ORDER, type Motion, type Surface } from './types';
 
 /**
  * The tools, the surface and the way out.
@@ -51,7 +52,7 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
   };
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--rule-hairline)] bg-[var(--surface-raised)] px-2">
+    <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--rule-hairline)] bg-[var(--surface-raised)] px-2">
       <button
         type="button"
         onClick={() => setDrawerOpen(!drawerOpen)}
@@ -69,7 +70,7 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
 
       <div className="mx-0.5 h-6 w-px bg-[var(--rule-hairline)]" />
 
-      <div className="flex items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-0.5">
         {TOOLS.map((t) => (
           <button
             key={t.id}
@@ -91,39 +92,82 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
 
       <div className="mx-0.5 h-6 w-px bg-[var(--rule-hairline)]" />
 
-      {/* The board itself: lights on, lights off. */}
+      {/* The board itself: which room the talk happens in. Each swatch is the
+          whole palette in miniature — ground, ink and accent — because that is
+          the only honest way to preview a decision that touches every card. */}
       <div
         role="group"
         aria-label="Board colour"
-        className="flex items-center gap-px overflow-hidden rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] p-0.5"
+        className="flex shrink-0 items-center gap-1 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] p-1"
       >
-        {(['white', 'black'] as Surface[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setSurface(s)}
-            aria-pressed={board.surface === s}
-            title={s === 'white' ? 'Whiteboard' : 'Blackboard'}
-            className="flex h-7 w-7 items-center justify-center rounded-[2px] transition-transform"
-            style={{
-              background: s === 'white' ? '#fbfaf7' : '#14171a',
-              border: `1px solid ${board.surface === s ? 'var(--accent)' : 'var(--rule-hairline)'}`,
-              boxShadow: board.surface === s ? '0 0 0 2px var(--accent-quiet)' : 'none',
-            }}
-          >
-            <span className="sr-only">{s === 'white' ? 'Whiteboard' : 'Blackboard'}</span>
-            <span
-              aria-hidden="true"
+        {SURFACE_ORDER.map((s) => {
+          const p = paletteOf(s);
+          const on = board.surface === s;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSurface(s)}
+              aria-pressed={on}
+              title={p.label}
+              className="relative h-7 w-7 overflow-hidden rounded-full transition-transform hover:scale-110"
               style={{
-                width: 10,
-                height: 2,
-                background: s === 'white' ? '#171614' : '#f2f4f6',
-                borderRadius: 1,
+                backgroundColor: p.ground,
+                backgroundImage: p.ambient,
+                border: `1px solid ${on ? 'var(--accent)' : 'var(--rule-hairline)'}`,
+                boxShadow: on ? '0 0 0 2px var(--accent-quiet)' : 'none',
+                transform: on ? 'scale(1.08)' : undefined,
               }}
-            />
-          </button>
-        ))}
+            >
+              <span className="sr-only">{p.label}</span>
+              <span
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: 5,
+                  top: 12,
+                  width: 11,
+                  height: 2,
+                  background: p.ink,
+                  borderRadius: 1,
+                }}
+              />
+              <span
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: 5,
+                  top: 16,
+                  width: 6,
+                  height: 2,
+                  background: p.accent,
+                  borderRadius: 1,
+                }}
+              />
+            </button>
+          );
+        })}
       </div>
+
+      {/* How hard the board moves. One control, because motion is a house
+          style rather than a per-card decision. */}
+      <select
+        aria-label="Motion"
+        value={board.motion ?? 'lively'}
+        onChange={(e) =>
+          mutate('Change the motion', (d) => {
+            d.board.motion = e.target.value as Motion;
+          })
+        }
+        title="How things arrive when you present"
+        className="h-8 shrink-0 rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] bg-transparent px-2 text-2xs capitalize text-[var(--ink-secondary)]"
+      >
+        {MOTIONS.map((m) => (
+          <option key={m} value={m} className="capitalize">
+            {m === 'none' ? 'Still' : m[0].toUpperCase() + m.slice(1)}
+          </option>
+        ))}
+      </select>
 
       <select
         aria-label="Grid"
@@ -133,14 +177,14 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
             d.board.grid = e.target.value as typeof board.grid;
           })
         }
-        className="h-8 rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] bg-transparent px-2 text-2xs text-[var(--ink-secondary)]"
+        className="h-8 shrink-0 rounded-[var(--radius-sm)] border border-[var(--rule-hairline)] bg-transparent px-2 text-2xs text-[var(--ink-secondary)]"
       >
         <option value="dots">Dots</option>
         <option value="lines">Lines</option>
         <option value="none">Plain</option>
       </select>
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <div className="hidden items-center gap-0.5 sm:flex">
           <IconBtn label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>
             −

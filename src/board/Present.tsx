@@ -15,9 +15,9 @@ import {
   rectContains,
   stopSteps,
 } from './board';
-import { cardHtml, edgesSvg, surfaceVars } from './paint';
+import { cardBody, countFrame, countPlan, edgesSvg, motionOf, surfaceVars } from './paint';
 import { useBoardUi } from './boardStore';
-import type { Board, Card, Stop } from './types';
+import type { Board, Card, CardId, Stop } from './types';
 
 /**
  * Presenting.
@@ -27,7 +27,14 @@ import type { Board, Card, Stop } from './types';
  * back over the whole board on the way between two distant stops, and pushing
  * Escape shows the lot at once. Nothing is ever hidden that you cannot get back
  * to by looking.
+ *
+ * Everything a card does on arrival is CSS defined in `paint.ts`, which the
+ * published page uses too: an entrance you liked in rehearsal is the entrance
+ * the file you mail out performs.
  */
+
+/** Long enough to read the controls, short enough to be gone from a recording. */
+const CHROME_IDLE_MS = 2600;
 
 export function Present({
   board,
@@ -50,10 +57,20 @@ export function Present({
   const [notesOpen, setNotesOpen] = useState(false);
   const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
   const [laserOn, setLaserOn] = useState(false);
+  const [spotOn, setSpotOn] = useState(false);
+  const [idle, setIdle] = useState(false);
+  /* Bumped by movement, throttled — the effect below reads it as "still here". */
+  const [awake, setAwake] = useState(0);
+  const lastWake = useRef(0);
 
   const stops = board.stops;
   const stop: Stop | null = stops[stopIndex] ?? null;
   const steps = stop ? stopSteps(board, stop) : 0;
+  const motion = motionOf(board);
+  /* The stylesheet already refuses to animate under this; the count-up is
+     script rather than CSS, so it has to be told separately. */
+  const reduced =
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* The talk being read is whatever was handed in, which is not always the
      project — a published link opens one that no project exists for. */
@@ -140,6 +157,10 @@ export function Present({
         case 'L':
           setLaserOn((v) => !v);
           break;
+        case 's':
+        case 'S':
+          setSpotOn((v) => !v);
+          break;
         case 'f':
         case 'F':
           if (document.fullscreenElement) void document.exitFullscreen();
@@ -164,7 +185,44 @@ export function Present({
     return () => clearTimeout(timer);
   }, [stop, step, overview, go]);
 
+  /* ---- the controls get out of the way ----------------------------------- */
+  const wake = useCallback(() => {
+    const now = performance.now();
+    if (now - lastWake.current < 200) return;
+    lastWake.current = now;
+    setAwake((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    setIdle(false);
+    const timer = setTimeout(() => setIdle(true), CHROME_IDLE_MS);
+    return () => clearTimeout(timer);
+  }, [awake]);
+
   const cards = useMemo(() => [...board.cards].sort((a, b) => a.z - b.z), [board]);
+
+  /**
+   * The order things arrive in, which is reading order within the click they
+   * belong to — so a stop builds down the way a person's eye goes, and a card
+   * that waits for a click still leads its own group.
+   */
+  const arrivalOrder = useMemo(() => {
+    const order = new Map<CardId, number>();
+    if (!stop) return order;
+    const groups = new Map<number, Card[]>();
+    for (const card of cardsInStop(board, stop)) {
+      const list = groups.get(card.step) ?? [];
+      list.push(card);
+      groups.set(card.step, list);
+    }
+    for (const list of groups.values()) {
+      list
+        .slice()
+        .sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)
+        .forEach((card, i) => order.set(card.id, i));
+    }
+    return order;
+  }, [board, stop]);
 
   const world: CSSProperties = {
     transform: `translate(${viewport.w / 2}px, ${viewport.h / 2}px) scale(${camera.zoom}) translate(${-camera.x}px, ${-camera.y}px)`,
@@ -212,16 +270,25 @@ export function Present({
         .filter(Boolean)
         .join('\n\n')
     : '';
+  const progress = total ? ((stopIndex + (steps ? step / (steps + 1) : 0) + 1) / total) * 100 : 0;
+  const chromeShown = !idle || notesOpen;
 
   return (
     <div
       ref={host}
       className="bx-root fixed inset-0 z-[60]"
-      style={{ ...(surfaceVars(board.surface) as CSSProperties), cursor: laserOn ? 'none' : 'default' }}
+      data-present="1"
+      data-motion={motion}
+      style={{
+        ...(surfaceVars(board.surface) as CSSProperties),
+        cursor: laserOn ? 'none' : idle ? 'none' : 'default',
+      }}
       onPointerMove={(e) => {
-        if (!laserOn) return;
+        wake();
         const rect = host.current?.getBoundingClientRect();
-        if (rect) setLaser({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        if (rect && (laserOn || spotOn)) {
+          setLaser({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        }
       }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
@@ -238,49 +305,105 @@ export function Present({
       aria-label={`Presenting: ${title}`}
     >
       <div className="bx-world" style={world}>
+        {/* In overview the frames are the map: without them the whole board is
+            an undifferentiated field of cards. */}
+        {overview &&
+          stops.map((s, i) => (
+            <div
+              key={s.id}
+              className="pointer-events-none absolute"
+              style={{
+                left: s.rect.x,
+                top: s.rect.y,
+                width: s.rect.w,
+                height: s.rect.h,
+                border: `${Math.max(2, 3 / camera.zoom)}px solid var(--bx-accent)`,
+                borderRadius: 8 / camera.zoom,
+                opacity: i === stopIndex ? 0.95 : 0.34,
+                boxShadow: i === stopIndex ? `0 0 ${60 / camera.zoom}px var(--bx-glow)` : undefined,
+                zIndex: 2,
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: -30 / camera.zoom,
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 26 / camera.zoom,
+                  padding: `0 ${10 / camera.zoom}px`,
+                  borderRadius: `${5 / camera.zoom}px`,
+                  background: 'var(--bx-accent)',
+                  color: 'var(--bx-accent-ink)',
+                  font: `600 ${15 / camera.zoom}px/1 system-ui, sans-serif`,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {i + 1}. {s.title}
+              </span>
+            </div>
+          ))}
+
         <div
           className="pointer-events-none absolute left-0 top-0"
           style={{ opacity: overview ? 1 : 0.55 }}
           dangerouslySetInnerHTML={{ __html: edgesSvg(board) }}
         />
-        {cards.map((card) => {
-          const shown = visible(card);
-          const focused = inFocus(card);
-          return (
-            <div
-              key={card.id}
-              data-card-id={card.id}
-              className="bx-card bx-fade"
-              style={{
-                left: card.rect.x,
-                top: card.rect.y,
-                width: card.rect.w,
-                height: card.rect.h,
-                zIndex: Math.round(card.z),
-                transform: `${card.rotation ? `rotate(${card.rotation}deg)` : ''} ${shown ? '' : 'translateY(24px)'}`.trim(),
-                opacity: shown ? (focused ? 1 : 0.22) : 0,
-                pointerEvents: shown && card.action ? 'auto' : 'none',
-                cursor: card.action ? 'pointer' : undefined,
-              }}
-              dangerouslySetInnerHTML={{ __html: cardHtml(card, board.surface) }}
-            />
-          );
-        })}
+
+        {cards.map((card) => (
+          <PresentCard
+            key={card.id}
+            card={card}
+            surface={board.surface}
+            shown={visible(card)}
+            focused={inFocus(card)}
+            index={arrivalOrder.get(card.id) ?? 0}
+            /* A new stop is a new arrival, so the entrances play again. */
+            playKey={`${stopIndex}:${overview ? 'o' : 'p'}`}
+            animate={motion !== 'none' && !reduced}
+          />
+        ))}
       </div>
 
-      {blackout && <div className="absolute inset-0" style={{ background: '#000' }} />}
+      {/* ---------- the room ---------- */}
+      {spotOn && laser && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            zIndex: 7,
+            background: `radial-gradient(circle ${Math.round(
+              Math.min(viewport.w, viewport.h) * 0.22,
+            )}px at ${laser.x}px ${laser.y}px, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.62) 100%)`,
+            transition: 'opacity 240ms ease',
+          }}
+        />
+      )}
+
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          zIndex: 30,
+          background: '#000',
+          opacity: blackout ? 1 : 0,
+          transition: 'opacity 240ms ease',
+          visibility: blackout ? 'visible' : 'hidden',
+        }}
+      />
 
       {laserOn && laser && (
         <span
           className="pointer-events-none absolute"
           style={{
-            left: laser.x - 9,
-            top: laser.y - 9,
-            width: 18,
-            height: 18,
+            left: laser.x - 11,
+            top: laser.y - 11,
+            width: 22,
+            height: 22,
+            zIndex: 31,
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(255,64,64,0.95) 0%, rgba(255,64,64,0.35) 55%, transparent 70%)',
-            boxShadow: '0 0 18px rgba(255,64,64,0.7)',
+            background:
+              'radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,72,72,0.95) 34%, rgba(255,64,64,0.28) 62%, transparent 72%)',
+            boxShadow: '0 0 26px rgba(255,64,64,0.75), 0 0 60px rgba(255,64,64,0.35)',
           }}
         />
       )}
@@ -288,27 +411,39 @@ export function Present({
       {/* ---------- chrome ---------- */}
       <div
         className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-4"
-        style={{ color: 'var(--bx-ink-soft)' }}
+        style={{
+          color: 'var(--bx-ink-soft)',
+          zIndex: 20,
+          opacity: chromeShown ? 1 : 0,
+          transform: chromeShown ? 'none' : 'translateY(10px)',
+          transition: 'opacity 320ms ease, transform 320ms ease',
+        }}
       >
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div
+          className="pointer-events-auto flex items-center gap-1.5 rounded-full p-1.5"
+          style={glass}
+        >
           <Chip onClick={() => go(-1)} label="Back">
             ‹
           </Chip>
           <Chip onClick={() => go(1)} label="Forward">
             ›
           </Chip>
-          <span className="numeral px-1 text-xs tabular-nums">
+          <span className="numeral px-2 text-xs tabular-nums" style={{ color: 'var(--bx-ink-soft)' }}>
             {total ? stopIndex + 1 : 0} / {total}
             {steps > 0 && ` · ${step}/${steps}`}
           </span>
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
-          <Chip onClick={() => setOverview((v) => !v)} label="Overview (O)">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full p-1.5" style={glass}>
+          <Chip onClick={() => setOverview((v) => !v)} label="Overview (O)" active={overview}>
             ⊞
           </Chip>
           <Chip onClick={() => setLaserOn((v) => !v)} label="Pointer (L)" active={laserOn}>
             ◉
+          </Chip>
+          <Chip onClick={() => setSpotOn((v) => !v)} label="Spotlight (S)" active={spotOn}>
+            ☀
           </Chip>
           <Chip onClick={() => setNotesOpen((v) => !v)} label="Notes (N)" active={notesOpen}>
             ≡
@@ -321,17 +456,43 @@ export function Present({
         </div>
       </div>
 
+      {/* The stop's own name, where a title bar would be if this had one. */}
+      {stop && !overview && (
+        <div
+          className="pointer-events-none absolute left-1/2 bottom-5 -translate-x-1/2 rounded-full px-4 py-1.5"
+          style={{
+            ...glass,
+            zIndex: 20,
+            opacity: chromeShown ? 1 : 0,
+            transition: 'opacity 320ms ease',
+            color: 'var(--bx-ink-soft)',
+            font: '500 12px/1.2 system-ui, -apple-system, sans-serif',
+            letterSpacing: '0.02em',
+            maxWidth: '46vw',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {stop.title}
+        </div>
+      )}
+
       {total > 1 && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px]"
-          style={{ background: 'color-mix(in oklch, var(--bx-ink) 12%, transparent)' }}
+          style={{
+            zIndex: 21,
+            background: 'color-mix(in oklch, var(--bx-ink) 12%, transparent)',
+          }}
         >
           <div
             style={{
               height: '100%',
-              width: `${((stopIndex + (steps ? step / (steps + 1) : 0) + 1) / total) * 100}%`,
-              background: 'var(--bx-accent)',
-              transition: 'width 420ms cubic-bezier(.2,.7,.2,1)',
+              width: `${progress}%`,
+              background: 'linear-gradient(90deg, var(--bx-accent), var(--bx-accent-alt))',
+              boxShadow: '0 0 12px var(--bx-glow), 0 0 3px var(--bx-glow)',
+              transition: 'width 480ms cubic-bezier(.2,.7,.2,1)',
             }}
           />
         </div>
@@ -341,6 +502,7 @@ export function Present({
         <aside
           className="absolute bottom-16 left-4 max-h-[40vh] w-[26rem] max-w-[80vw] overflow-y-auto rounded-[var(--radius-md)] p-4"
           style={{
+            zIndex: 22,
             background: 'var(--bx-ground-edge)',
             color: 'var(--bx-ink)',
             border: '1px solid var(--bx-rule)',
@@ -357,7 +519,7 @@ export function Present({
       )}
 
       {stops.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
+        <div className="absolute inset-0 flex items-center justify-center p-8 text-center" style={{ zIndex: 20 }}>
           <p className="max-w-[40ch] text-base leading-[1.6]" style={{ color: 'var(--bx-ink-soft)' }}>
             This board has no stops yet. Leave with Escape, draw a slide with <b>F</b> around the
             part you want to talk about, and the run will build itself in the order you draw them.
@@ -365,6 +527,110 @@ export function Present({
         </div>
       )}
     </div>
+  );
+}
+
+/** The frosted pill every control sits in, so chrome never fights the board. */
+const glass: CSSProperties = {
+  background: 'color-mix(in oklch, var(--bx-ground) 62%, transparent)',
+  border: '1px solid color-mix(in oklch, var(--bx-ink) 10%, transparent)',
+  backdropFilter: 'blur(18px) saturate(150%)',
+  WebkitBackdropFilter: 'blur(18px) saturate(150%)',
+  boxShadow: '0 2px 6px var(--bx-shadow), 0 18px 40px -20px var(--bx-shadow-deep)',
+};
+
+/**
+ * One card, and the moment it arrives.
+ *
+ * The entrance is a CSS animation on an inner element, which means it has to be
+ * restarted rather than re-declared when the same card arrives a second time —
+ * going back a slide and forward again should look exactly like the first pass.
+ */
+function PresentCard({
+  card,
+  surface,
+  shown,
+  focused,
+  index,
+  playKey,
+  animate,
+}: {
+  card: Card;
+  surface: Board['surface'];
+  shown: boolean;
+  focused: boolean;
+  index: number;
+  playKey: string;
+  animate: boolean;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  const html = useMemo(() => cardBody(card, surface), [card, surface]);
+
+  useEffect(() => {
+    if (!shown || !animate) return;
+    const root = host.current;
+    if (!root) return;
+    const anim = root.querySelector<HTMLElement>('.bx-anim');
+    if (!anim) return;
+
+    const parts: { style: CSSStyleDeclaration }[] = [
+      anim,
+      ...Array.from(root.querySelectorAll<HTMLElement>('.bx-w')),
+      ...Array.from(root.querySelectorAll<SVGPathElement>('.bx-ink path')),
+    ];
+    for (const part of parts) part.style.animation = 'none';
+    // One forced reflow is what makes the browser agree the animation is new.
+    void anim.offsetWidth;
+    for (const part of parts) part.style.animation = '';
+
+    if (card.kind !== 'stat') return;
+    const plan = countPlan(card.value);
+    const number = root.querySelector<HTMLElement>('.bx-num');
+    if (!plan || !number) return;
+
+    /* A statistic that lands on its figure is a slide; one that runs up to it
+       is the reason the figure is on screen at that size. */
+    const ms = 900;
+    const delay = index * 74;
+    let raf = 0;
+    const start = performance.now() + delay;
+    number.textContent = countFrame(plan, 0);
+    const tick = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - start) / ms));
+      const eased = 1 - Math.pow(1 - t, 3);
+      number.textContent = countFrame(plan, eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      number.textContent = card.value;
+    };
+  }, [shown, playKey, animate, card, index]);
+
+  return (
+    <div
+      ref={host}
+      data-card-id={card.id}
+      className="bx-card bx-fade"
+      data-focus={focused ? '1' : '0'}
+      data-raised={card.raised ? '1' : undefined}
+      style={
+        {
+          left: card.rect.x,
+          top: card.rect.y,
+          width: card.rect.w,
+          height: card.rect.h,
+          zIndex: Math.round(card.z),
+          transform: card.rotation ? `rotate(${card.rotation}deg)` : undefined,
+          opacity: shown ? (focused ? 1 : 0.22) : 0,
+          pointerEvents: shown && card.action ? 'auto' : 'none',
+          cursor: card.action ? 'pointer' : undefined,
+          '--bx-i': index,
+        } as CSSProperties
+      }
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
@@ -384,14 +650,18 @@ function Chip({
       type="button"
       title={label}
       aria-label={label}
+      aria-pressed={active}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
-      className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-sm transition-opacity"
+      className="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all hover:scale-105"
       style={{
-        background: active ? 'var(--bx-accent)' : 'color-mix(in oklch, var(--bx-ink) 8%, transparent)',
-        color: active ? 'var(--bx-ground)' : 'var(--bx-ink-soft)',
+        background: active
+          ? 'linear-gradient(140deg, var(--bx-accent), var(--bx-accent-alt))'
+          : 'color-mix(in oklch, var(--bx-ink) 8%, transparent)',
+        color: active ? 'var(--bx-accent-ink)' : 'var(--bx-ink-soft)',
+        boxShadow: active ? '0 0 16px var(--bx-glow)' : undefined,
       }}
     >
       {children}

@@ -1,5 +1,15 @@
 import type { Project } from '@/core/types';
-import { boardCss, cardHtml, cardTransform, edgesSvg, escapeHtml, SURFACES } from './paint';
+import {
+  boardCss,
+  cardBody,
+  cardTransform,
+  countPlan,
+  edgesSvg,
+  escapeHtml,
+  motionOf,
+  paletteOf,
+  surfaceVars,
+} from './paint';
 import { stopSteps } from './board';
 import type { Board, Card } from './types';
 
@@ -90,8 +100,17 @@ export async function inlineAssets(
 interface TalkModel {
   title: string;
   surface: string;
+  motion: string;
   stops: { title: string; rect: number[]; notes: string; auto: number; steps: number }[];
-  cards: { rect: number[]; step: number; action: unknown; note: string; stop: number }[];
+  cards: {
+    rect: number[];
+    step: number;
+    action: unknown;
+    note: string;
+    stop: number;
+    /** The figure this card counts up to, when it is a statistic that can. */
+    count: string | null;
+  }[];
   notes: boolean;
   autoplay: boolean;
 }
@@ -105,6 +124,29 @@ function publishedAction(board: Board, card: Card): unknown {
   if (!action) return null;
   if (action.kind !== 'stop') return action;
   return { kind: 'stop', index: board.stops.findIndex((s) => s.id === action.stopId) };
+}
+
+/**
+ * The order the cards of a stop arrive in: reading order, within the click they
+ * belong to. A stop then builds down the way an eye goes, and a card that waits
+ * for a click still leads its own group instead of inheriting a long delay.
+ */
+function arrivalOrder(board: Board, cards: Card[]): Map<string, number> {
+  const order = new Map<string, number>();
+  const groups = new Map<string, Card[]>();
+  for (const card of cards) {
+    const key = `${stopIndexFor(board, card)}:${card.step}`;
+    const list = groups.get(key) ?? [];
+    list.push(card);
+    groups.set(key, list);
+  }
+  for (const list of groups.values()) {
+    list
+      .slice()
+      .sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)
+      .forEach((card, i) => order.set(card.id, i));
+  }
+  return order;
 }
 
 /**
@@ -136,13 +178,15 @@ export function buildStandalone(
   options: PublishOptions,
 ): string {
   const board = project.board;
-  const palette = SURFACES[board.surface];
+  const palette = paletteOf(board.surface);
   const resolve = (src: string | null) => (src ? (assets.get(src) ?? src) : null);
   const cards = [...board.cards].sort((a, b) => a.z - b.z);
+  const order = arrivalOrder(board, cards);
 
   const model: TalkModel = {
     title: project.title,
     surface: board.surface,
+    motion: motionOf(board),
     stops: board.stops.map((s) => ({
       title: s.title,
       rect: [s.rect.x, s.rect.y, s.rect.w, s.rect.h],
@@ -158,6 +202,7 @@ export function buildStandalone(
       action: publishedAction(board, c),
       note: options.includeNotes ? c.note : '',
       stop: stopIndexFor(board, c),
+      count: c.kind === 'stat' && countPlan(c.value) ? c.value : null,
     })),
     notes: options.includeNotes,
     autoplay: options.autoplay,
@@ -166,26 +211,24 @@ export function buildStandalone(
   const body = cards
     .map(
       (card, i) =>
-        `<div class="bx-card bx-fade" data-i="${i}" style="${escapeHtml(cardTransform(card))}">${cardHtml(
-          card,
-          board.surface,
-          resolve,
-        )}</div>`,
+        `<div class="bx-card bx-fade" data-i="${i}"${card.raised ? ' data-raised="1"' : ''} style="${escapeHtml(
+          `${cardTransform(card)};--bx-i:${order.get(card.id) ?? 0}`,
+        )}">${cardBody(card, board.surface, resolve)}</div>`,
     )
     .join('\n');
 
-  const vars = Object.entries({
-    '--bx-ground': palette.ground,
-    '--bx-ground-edge': palette.groundEdge,
-    '--bx-ink': palette.ink,
-    '--bx-ink-soft': palette.inkSoft,
-    '--bx-ink-faint': palette.inkFaint,
-    '--bx-rule': palette.rule,
-    '--bx-accent': palette.accent,
-    '--bx-mat': palette.mat,
-    '--bx-mat-ink': palette.matInk,
-    '--bx-shadow': palette.shadow,
-  })
+  /* The frames are the map, and the map is what stops an audience getting lost
+     when the whole board comes into view. */
+  const frames = board.stops
+    .map(
+      (s, i) =>
+        `<div class="bx-frame" data-f="${i}" style="left:${s.rect.x}px;top:${s.rect.y}px;width:${s.rect.w}px;height:${s.rect.h}px"><span>${
+          i + 1
+        }. ${escapeHtml(s.title)}</span></div>`,
+    )
+    .join('\n');
+
+  const vars = Object.entries(surfaceVars(board.surface))
     .map(([k, v]) => `${k}:${v}`)
     .join(';');
 
@@ -199,27 +242,30 @@ export function buildStandalone(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="color-scheme" content="${board.surface === 'black' ? 'dark' : 'light'}" />
+<meta name="color-scheme" content="${palette.dark ? 'dark' : 'light'}" />
 <title>${escapeHtml(project.title)}</title>
 <meta name="description" content="${escapeHtml(description)}" />
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;background:${palette.ground};}
-:root{${vars};color-scheme:${board.surface === 'black' ? 'dark' : 'light'}}
+:root{${vars};color-scheme:${palette.dark ? 'dark' : 'light'}}
 ${boardCss()}
 ${chromeCss()}
 </style>
 </head>
 <body>
-<div class="bx-root" id="bx-stage">
+<div class="bx-root" id="bx-stage" data-present="1" data-motion="${escapeHtml(motionOf(board))}">
   <div class="bx-world" id="bx-world">
+${frames}
 ${edgesSvg(board)}
 ${body}
   </div>
+  <div class="bx-spot" id="bx-spot" hidden></div>
   <div class="bx-laser" id="bx-laser" hidden></div>
   <div class="bx-black" id="bx-black" hidden></div>
   <aside class="bx-notes" id="bx-notes" hidden></aside>
   <div class="bx-bar"><i id="bx-fill"></i></div>
+  <p class="bx-title" id="bx-title"></p>
   <div class="bx-chrome">
     <div class="bx-group">
       <button id="bx-prev" title="Back">&lsaquo;</button>
@@ -229,6 +275,7 @@ ${body}
     <div class="bx-group">
       <button id="bx-over" title="Overview (O)">&#9638;</button>
       <button id="bx-point" title="Pointer (L)">&#9673;</button>
+      <button id="bx-light" title="Spotlight (S)">&#9728;</button>
       ${options.includeNotes ? '<button id="bx-note" title="Notes (N)">&#8801;</button>' : ''}
       <button id="bx-full" title="Full screen (F)">&#9974;</button>
     </div>
@@ -246,31 +293,59 @@ ${runtime()}
 function chromeCss(): string {
   return `
 .bx-chrome{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;
-  align-items:flex-end;padding:14px 16px;gap:12px;pointer-events:none;
-  font:400 13px/1 system-ui,-apple-system,sans-serif;opacity:0;transition:opacity 260ms}
-.bx-root:hover .bx-chrome,.bx-chrome:focus-within,.bx-chrome[data-show="1"]{opacity:1}
-.bx-group{display:flex;align-items:center;gap:6px;pointer-events:auto}
-.bx-chrome button{width:32px;height:32px;border:none;border-radius:4px;cursor:pointer;font-size:15px;
-  background:color-mix(in oklch,var(--bx-ink) 9%,transparent);color:var(--bx-ink-soft)}
-.bx-chrome button:hover{background:color-mix(in oklch,var(--bx-ink) 16%,transparent);color:var(--bx-ink)}
-.bx-chrome button[data-on="1"]{background:var(--bx-accent);color:var(--bx-ground)}
-.bx-count{padding:0 6px;color:var(--bx-ink-faint);font-variant-numeric:tabular-nums}
-.bx-bar{position:absolute;left:0;right:0;bottom:0;height:3px;
+  align-items:flex-end;padding:14px 16px;gap:12px;pointer-events:none;z-index:20;
+  font:400 13px/1 system-ui,-apple-system,sans-serif;opacity:0;transform:translateY(10px);
+  transition:opacity 320ms ease,transform 320ms ease}
+.bx-chrome:focus-within,.bx-chrome[data-show="1"]{opacity:1;transform:none}
+.bx-group{display:flex;align-items:center;gap:6px;pointer-events:auto;padding:6px;border-radius:999px;
+  background:color-mix(in oklch,var(--bx-ground) 62%,transparent);
+  border:1px solid color-mix(in oklch,var(--bx-ink) 10%,transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);
+  box-shadow:0 2px 6px var(--bx-shadow),0 18px 40px -20px var(--bx-shadow-deep)}
+.bx-chrome button{width:32px;height:32px;border:none;border-radius:999px;cursor:pointer;font-size:15px;
+  background:color-mix(in oklch,var(--bx-ink) 8%,transparent);color:var(--bx-ink-soft);
+  transition:transform 160ms ease,background 160ms ease,color 160ms ease}
+.bx-chrome button:hover{background:color-mix(in oklch,var(--bx-ink) 16%,transparent);
+  color:var(--bx-ink);transform:scale(1.06)}
+.bx-chrome button[data-on="1"]{background-image:linear-gradient(140deg,var(--bx-accent),var(--bx-accent-alt));
+  color:var(--bx-accent-ink);box-shadow:0 0 16px var(--bx-glow)}
+.bx-count{padding:0 8px;color:var(--bx-ink-faint);font-variant-numeric:tabular-nums}
+.bx-title{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);margin:0;z-index:20;
+  max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;
+  padding:7px 16px;border-radius:999px;color:var(--bx-ink-soft);letter-spacing:0.02em;
+  font:500 12px/1.2 system-ui,-apple-system,sans-serif;opacity:0;transition:opacity 320ms ease;
+  background:color-mix(in oklch,var(--bx-ground) 62%,transparent);
+  border:1px solid color-mix(in oklch,var(--bx-ink) 10%,transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%)}
+.bx-title[data-show="1"]{opacity:1}
+.bx-bar{position:absolute;left:0;right:0;bottom:0;height:3px;z-index:21;
   background:color-mix(in oklch,var(--bx-ink) 12%,transparent)}
-.bx-bar i{display:block;height:100%;width:0;background:var(--bx-accent);
-  transition:width 420ms cubic-bezier(.2,.7,.2,1)}
-.bx-black{position:absolute;inset:0;background:#000;z-index:99}
-.bx-laser{position:absolute;width:18px;height:18px;border-radius:50%;pointer-events:none;z-index:98;
-  background:radial-gradient(circle,rgba(255,64,64,.95) 0%,rgba(255,64,64,.35) 55%,transparent 70%);
-  box-shadow:0 0 18px rgba(255,64,64,.7)}
+.bx-bar i{display:block;height:100%;width:0;
+  background:linear-gradient(90deg,var(--bx-accent),var(--bx-accent-alt));
+  box-shadow:0 0 12px var(--bx-glow),0 0 3px var(--bx-glow);
+  transition:width 480ms cubic-bezier(.2,.7,.2,1)}
+.bx-black{position:absolute;inset:0;background:#000;z-index:30}
+.bx-spot{position:absolute;inset:0;pointer-events:none;z-index:7}
+.bx-laser{position:absolute;width:22px;height:22px;border-radius:50%;pointer-events:none;z-index:31;
+  background:radial-gradient(circle,rgba(255,255,255,.95) 0%,rgba(255,72,72,.95) 34%,rgba(255,64,64,.28) 62%,transparent 72%);
+  box-shadow:0 0 26px rgba(255,64,64,.75),0 0 60px rgba(255,64,64,.35)}
 .bx-notes{position:absolute;left:16px;bottom:64px;width:26rem;max-width:80vw;max-height:40vh;
-  overflow:auto;padding:16px;border-radius:6px;background:var(--bx-ground-edge);color:var(--bx-ink);
-  border:1px solid var(--bx-rule);white-space:pre-wrap;z-index:97;
+  overflow:auto;padding:16px;border-radius:10px;background:var(--bx-ground-edge);color:var(--bx-ink);
+  border:1px solid var(--bx-rule);white-space:pre-wrap;z-index:22;
   font:400 14px/1.6 system-ui,-apple-system,sans-serif;box-shadow:0 20px 60px var(--bx-shadow)}
-.bx-hint{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);margin:0;
+.bx-hint{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);margin:0;z-index:20;
   color:var(--bx-ink-faint);font:400 13px/1 system-ui,sans-serif;transition:opacity 600ms}
 .bx-hint[hidden]{display:none}
 .bx-card[data-act="1"]{cursor:pointer}
+/* The frames only exist when the whole board is in view. */
+.bx-frame{position:absolute;border:3px solid var(--bx-accent);border-radius:8px;opacity:0;
+  pointer-events:none;z-index:2;transition:opacity 320ms ease}
+.bx-frame[data-show="1"]{opacity:.36}
+.bx-frame[data-here="1"]{opacity:.95;box-shadow:0 0 60px var(--bx-glow)}
+.bx-frame span{position:absolute;left:0;top:-32px;display:flex;align-items:center;height:26px;
+  padding:0 10px;border-radius:999px;white-space:nowrap;
+  background:var(--bx-accent);color:var(--bx-accent-ink);
+  font:600 15px/1 system-ui,-apple-system,sans-serif}
 @media (prefers-reduced-motion:reduce){.bx-fade{transition:none}.bx-bar i{transition:none}}
 `.trim();
 }
@@ -287,16 +362,23 @@ function runtime(): string {
   var stage = document.getElementById('bx-stage');
   var world = document.getElementById('bx-world');
   var cards = [].slice.call(world.querySelectorAll('.bx-card'));
+  var frames = [].slice.call(world.querySelectorAll('.bx-frame'));
   var fill = document.getElementById('bx-fill');
   var count = document.getElementById('bx-count');
   var laser = document.getElementById('bx-laser');
+  var spotEl = document.getElementById('bx-spot');
   var black = document.getElementById('bx-black');
   var notesEl = document.getElementById('bx-notes');
+  var titleEl = document.getElementById('bx-title');
   var hint = document.getElementById('bx-hint');
   var chrome = document.querySelector('.bx-chrome');
 
   var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var index = 0, step = 0, overview = false, pointing = false, raf = 0, timer = 0;
+  var still = talk.motion === 'none' || reduced;
+  var index = 0, step = 0, overview = false, pointing = false, spot = false;
+  var raf = 0, timer = 0, idleTimer = 0;
+  var was = [];
+  var pointer = { x: 0, y: 0 };
   var cam = { x: 0, y: 0, zoom: 1 };
 
   function size() { return { w: stage.clientWidth, h: stage.clientHeight }; }
@@ -359,6 +441,61 @@ function runtime(): string {
            cy >= stop.rect[1] && cy <= stop.rect[1] + stop.rect[3];
   }
 
+  /* An entrance is a CSS animation, so playing it a second time means taking it
+     away and putting it back with a reflow in between. Going back a slide and
+     forward again should look exactly like the first pass. */
+  function play(el, model) {
+    if (still) return;
+    var anim = el.querySelector('.bx-anim');
+    if (!anim) return;
+    var parts = [anim];
+    var extra = el.querySelectorAll('.bx-w, .bx-ink path');
+    for (var j = 0; j < extra.length; j++) parts.push(extra[j]);
+    for (var j = 0; j < parts.length; j++) parts[j].style.animation = 'none';
+    void anim.offsetWidth;
+    for (var j = 0; j < parts.length; j++) parts[j].style.animation = '';
+    runUp(el, model);
+  }
+
+  /* A statistic that lands on its figure is a slide; one that runs up to it is
+     the reason the figure is on screen at that size. */
+  function parseCount(value) {
+    var m = /^(\D*?)(-?\d[\d,]*(?:\.\d+)?)([\s\S]*)$/.exec(value);
+    if (!m) return null;
+    var plain = m[2].replace(/,/g, '');
+    var target = parseFloat(plain);
+    if (!isFinite(target) || Math.abs(target) > 1e12) return null;
+    var dot = plain.indexOf('.');
+    return {
+      p: m[1], s: m[3], t: target,
+      d: dot < 0 ? 0 : plain.length - dot - 1,
+      g: m[2].indexOf(',') >= 0
+    };
+  }
+
+  function countFrame(plan, t) {
+    var parts = (plan.t * t).toFixed(plan.d).split('.');
+    var whole = plan.g ? parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') : parts[0];
+    return plan.p + whole + (parts[1] ? '.' + parts[1] : '') + plan.s;
+  }
+
+  function runUp(el, model) {
+    if (!model.count) return;
+    var b = el.querySelector('.bx-num');
+    if (!b) return;
+    var plan = parseCount(model.count);
+    if (!plan) { b.textContent = model.count; return; }
+    if (b.bxRaf) cancelAnimationFrame(b.bxRaf);
+    var delay = (parseFloat(el.style.getPropertyValue('--bx-i')) || 0) * 74;
+    var start = performance.now() + delay;
+    b.textContent = countFrame(plan, 0);
+    (function tick(now) {
+      var t = Math.max(0, Math.min(1, (now - start) / 900));
+      b.textContent = countFrame(plan, 1 - Math.pow(1 - t, 3));
+      if (t < 1) b.bxRaf = requestAnimationFrame(tick);
+    })(performance.now());
+  }
+
   function render() {
     var here = talk.stops[index];
     for (var i = 0; i < cards.length; i++) {
@@ -366,12 +503,21 @@ function runtime(): string {
       var mine = overview || inStop(model.rect, here);
       var shown = overview || model.step === 0 || (mine && model.step <= step);
       var el = cards[i];
-      el.style.opacity = shown ? (mine || overview ? '1' : '0.22') : '0';
+      el.style.opacity = shown ? '1' : '0';
+      el.setAttribute('data-focus', mine || overview ? '1' : '0');
+      if (!mine && !overview && shown) el.style.opacity = '0.22';
       el.style.pointerEvents = shown && model.action ? 'auto' : 'none';
       if (model.action) el.setAttribute('data-act', '1');
-      if (!shown) el.style.transform = 'translateY(24px)';
-      else el.style.transform = '';
+      if (shown && !was[i]) play(el, model);
+      was[i] = shown;
     }
+    for (var f = 0; f < frames.length; f++) {
+      if (overview) frames[f].setAttribute('data-show', '1');
+      else frames[f].removeAttribute('data-show');
+      if (overview && f === index) frames[f].setAttribute('data-here', '1');
+      else frames[f].removeAttribute('data-here');
+    }
+    if (titleEl) titleEl.textContent = here && !overview ? here.title : '';
     var stop = here;
     var steps = stop ? stop.steps : 0;
     count.textContent = talk.stops.length
@@ -457,6 +603,7 @@ function runtime(): string {
     else if (k === 'b' || k === 'B') { black.hidden = !black.hidden; }
     else if (k === 'n' || k === 'N') { toggleNotes(); }
     else if (k === 'l' || k === 'L') { togglePointer(); }
+    else if (k === 's' || k === 'S') { toggleSpot(); }
     else if (k === 'f' || k === 'F') { toggleFull(); }
   });
 
@@ -493,17 +640,50 @@ function runtime(): string {
     var b = document.getElementById('bx-point');
     if (pointing) b.setAttribute('data-on', '1'); else b.removeAttribute('data-on');
   }
+  /* Everything but a circle round the pointer goes dark — the one thing a
+     laser cannot do, and the thing a recorded talk needs most. */
+  function toggleSpot() {
+    spot = !spot;
+    spotEl.hidden = !spot;
+    paintSpot();
+    var b = document.getElementById('bx-light');
+    if (spot) b.setAttribute('data-on', '1'); else b.removeAttribute('data-on');
+  }
+  function paintSpot() {
+    if (!spot) return;
+    var v = size();
+    var r = Math.round(Math.min(v.w, v.h) * 0.22);
+    spotEl.style.background = 'radial-gradient(circle ' + r + 'px at ' + pointer.x + 'px ' +
+      pointer.y + 'px, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.62) 100%)';
+  }
+  /* The controls are for the presenter, not the audience: they leave when the
+     hand does, so nothing of ours ends up in the recording. */
+  function wake() {
+    chrome.setAttribute('data-show', '1');
+    if (titleEl) titleEl.setAttribute('data-show', '1');
+    if (!pointing) stage.style.cursor = '';
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function () {
+      chrome.removeAttribute('data-show');
+      if (titleEl) titleEl.removeAttribute('data-show');
+      stage.style.cursor = 'none';
+    }, 2600);
+  }
   function toggleFull() {
     if (document.fullscreenElement) document.exitFullscreen();
     else if (stage.requestFullscreen) stage.requestFullscreen();
   }
 
   stage.addEventListener('pointermove', function (e) {
-    chrome.setAttribute('data-show', '1');
-    if (!pointing) return;
+    wake();
     var r = stage.getBoundingClientRect();
-    laser.style.left = (e.clientX - r.left - 9) + 'px';
-    laser.style.top = (e.clientY - r.top - 9) + 'px';
+    pointer.x = e.clientX - r.left;
+    pointer.y = e.clientY - r.top;
+    if (pointing) {
+      laser.style.left = (pointer.x - 11) + 'px';
+      laser.style.top = (pointer.y - 11) + 'px';
+    }
+    paintSpot();
   });
 
   document.getElementById('bx-prev').addEventListener('click', function (e) { e.stopPropagation(); go(-1); });
@@ -511,10 +691,11 @@ function runtime(): string {
   document.getElementById('bx-over').addEventListener('click', function (e) { e.stopPropagation(); toggleOverview(); });
   document.getElementById('bx-point').addEventListener('click', function (e) { e.stopPropagation(); togglePointer(); });
   document.getElementById('bx-full').addEventListener('click', function (e) { e.stopPropagation(); toggleFull(); });
+  document.getElementById('bx-light').addEventListener('click', function (e) { e.stopPropagation(); toggleSpot(); });
   var noteBtn = document.getElementById('bx-note');
   if (noteBtn) noteBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleNotes(); });
 
-  addEventListener('resize', function () { frame(); });
+  addEventListener('resize', function () { frame(); paintSpot(); });
   addEventListener('hashchange', function () {
     var n = parseInt(location.hash.slice(1), 10);
     if (n && n - 1 !== index) goTo(n - 1, 0);
@@ -528,6 +709,7 @@ function runtime(): string {
   cam = talk.stops.length ? cameraFor(talk.stops[index].rect, 0.97) : cameraFor(bounds(), 0.88);
   draw();
   render();
+  wake();
 })();
 `.trim();
 }
