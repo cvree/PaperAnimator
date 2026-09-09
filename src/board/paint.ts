@@ -548,6 +548,109 @@ export function boardCss(): string {
 
 .bx-cite{font-family:${MONO};font-size:17px;color:var(--bx-ink-faint);letter-spacing:0.02em;}
 
+/* ============================================================================
+   The live layer — what a person does with their hands while talking.
+   Shared by the presenter and the published page; driven by live.js.
+   ========================================================================== */
+
+.bx-live{position:absolute;inset:0;z-index:8;pointer-events:none;}
+/* Named for the surface, not for the ink: bx-ink is already a card somebody drew. */
+.bx-slate{position:absolute;left:0;top:0;pointer-events:none;}
+.bx-catch{position:absolute;inset:0;pointer-events:auto;}
+.bx-catch[hidden]{display:none;}
+.bx-root[data-tool="pen"] .bx-catch{cursor:crosshair;}
+.bx-root[data-tool="mark"] .bx-catch{cursor:cell;}
+.bx-root[data-tool="erase"] .bx-catch{cursor:grab;}
+
+/* A ring where you pointed: the gesture for "this, here, now". */
+.bx-ping{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;
+  border:3px solid var(--bx-accent);pointer-events:none;
+  animation:bx-ping 1100ms cubic-bezier(.16,.84,.3,1) forwards;}
+.bx-ping::after{content:'';position:absolute;inset:-3px;border-radius:50%;
+  border:3px solid var(--bx-accent);animation:bx-ping 1100ms cubic-bezier(.16,.84,.3,1) 180ms forwards;}
+@keyframes bx-ping{from{transform:scale(0.4);opacity:0.95}
+  to{transform:scale(5.6);opacity:0}}
+
+/* A card told to make itself known, for the sentence that is about it. */
+.bx-card[data-hit="1"]>.bx-anim,.bx-card[data-hit="1"]>*:first-child{
+  animation:bx-hit 900ms cubic-bezier(.22,1.2,.32,1) both;}
+@keyframes bx-hit{0%{transform:scale(1)}22%{transform:scale(1.075)}
+  48%{transform:scale(0.985)}70%{transform:scale(1.022)}100%{transform:scale(1)}}
+.bx-card[data-hit="1"]{filter:drop-shadow(0 0 26px var(--bx-glow)) drop-shadow(0 0 70px var(--bx-glow));}
+
+/* Everything but one card steps back, so a question can be answered. */
+.bx-root[data-solo="1"] .bx-card:not([data-solo="1"]){opacity:0.1!important;filter:blur(4px);}
+.bx-card[data-solo="1"]{filter:drop-shadow(0 10px 26px var(--bx-shadow)) drop-shadow(0 0 60px var(--bx-glow));}
+
+.bx-laser{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;
+  pointer-events:none;z-index:31;
+  background:radial-gradient(circle,rgba(255,255,255,0.95) 0%,rgba(255,72,72,0.95) 34%,
+    rgba(255,64,64,0.28) 62%,transparent 72%);
+  box-shadow:0 0 26px rgba(255,64,64,0.75),0 0 60px rgba(255,64,64,0.35);}
+.bx-spot{position:absolute;inset:0;pointer-events:none;z-index:7;}
+.bx-laser[hidden],.bx-spot[hidden],.bx-help[hidden],.bx-timer[hidden]{display:none;}
+
+/* The tools, down the right-hand edge, where a hand rests. */
+.bx-tools{position:absolute;right:14px;top:50%;transform:translateY(-50%);z-index:24;
+  display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 6px;
+  border-radius:999px;opacity:0;transition:opacity 320ms ease,transform 320ms ease;
+  background:color-mix(in oklch,var(--bx-ground) 62%,transparent);
+  border:1px solid color-mix(in oklch,var(--bx-ink) 10%,transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);
+  box-shadow:0 2px 6px var(--bx-shadow),0 18px 40px -20px var(--bx-shadow-deep);}
+.bx-tools[data-show="1"]{opacity:1;pointer-events:auto;}
+.bx-tools[data-show="0"]{pointer-events:none;transform:translateY(-50%) translateX(10px);}
+.bx-tool{width:30px;height:30px;border:none;border-radius:50%;cursor:pointer;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  background:color-mix(in oklch,var(--bx-ink) 8%,transparent);color:var(--bx-ink-soft);
+  transition:transform 160ms ease,background 160ms ease,color 160ms ease;}
+.bx-tool:hover{background:color-mix(in oklch,var(--bx-ink) 16%,transparent);
+  color:var(--bx-ink);transform:scale(1.08);}
+.bx-tool[data-on="1"]{background-image:linear-gradient(140deg,var(--bx-accent),var(--bx-accent-alt));
+  color:var(--bx-accent-ink);box-shadow:0 0 16px var(--bx-glow);}
+.bx-swatches{display:flex;flex-direction:column;gap:4px;margin-top:3px;padding-top:6px;
+  border-top:1px solid color-mix(in oklch,var(--bx-ink) 12%,transparent);}
+.bx-swatch{width:16px;height:16px;border-radius:50%;border:1px solid
+  color-mix(in oklch,var(--bx-ink) 22%,transparent);cursor:pointer;padding:0;
+  transition:transform 140ms ease,box-shadow 140ms ease;}
+.bx-swatch:hover{transform:scale(1.18);}
+.bx-swatch[data-on="1"]{transform:scale(1.28);box-shadow:0 0 0 2px var(--bx-ground),0 0 0 3.5px var(--bx-ink);}
+
+.bx-timer{position:absolute;right:14px;top:14px;z-index:24;padding:6px 12px;border-radius:999px;
+  font:500 14px/1 ui-monospace,'SF Mono',monospace;font-variant-numeric:tabular-nums;
+  color:var(--bx-ink-soft);pointer-events:none;
+  background:color-mix(in oklch,var(--bx-ground) 62%,transparent);
+  border:1px solid color-mix(in oklch,var(--bx-ink) 10%,transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);}
+
+.bx-help{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;
+  width:min(46rem,88vw);max-height:82vh;overflow:auto;padding:26px 30px;border-radius:16px;
+  color:var(--bx-ink);font:400 14px/1.5 system-ui,-apple-system,sans-serif;
+  background:color-mix(in oklch,var(--bx-ground) 88%,transparent);
+  border:1px solid color-mix(in oklch,var(--bx-ink) 12%,transparent);
+  -webkit-backdrop-filter:blur(28px) saturate(150%);backdrop-filter:blur(28px) saturate(150%);
+  box-shadow:0 30px 90px var(--bx-shadow-deep);
+  animation:bx-help-in 260ms cubic-bezier(.2,1.3,.35,1) both;}
+/* Its own keyframe rather than bx-pop: an animation that sets the transform
+   property would drop the centring translate this panel is positioned by. */
+@keyframes bx-help-in{from{opacity:0;transform:translate(-50%,-50%) scale(0.94)}
+  to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.bx-help h2{margin:0 0 16px;font:600 15px/1 system-ui,sans-serif;letter-spacing:0.12em;
+  text-transform:uppercase;color:var(--bx-ink-faint);}
+.bx-help dl{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));
+  gap:2px 26px;}
+.bx-help dl>div{display:flex;align-items:baseline;gap:12px;padding:5px 0;
+  border-bottom:1px solid color-mix(in oklch,var(--bx-ink) 7%,transparent);}
+.bx-help dt{flex:0 0 6.4rem;font:600 12px/1.5 ui-monospace,'SF Mono',monospace;
+  color:var(--bx-accent);letter-spacing:0.02em;}
+.bx-help dd{margin:0;color:var(--bx-ink-soft);}
+.bx-help p{margin:16px 0 0;color:var(--bx-ink-faint);font-size:12px;}
+
+@media (prefers-reduced-motion:reduce){
+  .bx-ping{animation-duration:1ms}
+  .bx-card[data-hit="1"]>.bx-anim,.bx-card[data-hit="1"]>*:first-child{animation:none}
+}
+
 @media (prefers-reduced-motion:reduce){
   .bx-anim,.bx-w,.bx-ink path,.bx-edge{animation:none!important;opacity:1!important;
     transform:none!important;filter:none!important;clip-path:none!important;stroke-dashoffset:0!important;}

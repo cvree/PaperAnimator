@@ -639,10 +639,7 @@ export function BoardSurface() {
           />
         ))}
 
-        <div
-          className="pointer-events-none absolute left-0 top-0"
-          dangerouslySetInnerHTML={{ __html: edgesSvg(board) }}
-        />
+        <Edges board={board} />
 
         {cards.map((card) => {
           const moving = ghost && ghost.ids.includes(card.id) && !card.locked;
@@ -784,10 +781,7 @@ function CardView({
       {editing && editable ? (
         <CardEditor card={card} initial={initial} onText={onText} onDone={onEditEnd} />
       ) : (
-        <div
-          className="pointer-events-none h-full w-full"
-          dangerouslySetInnerHTML={{ __html: cardHtml(card, surface) }}
-        />
+        <CardBody card={card} surface={surface} />
       )}
 
       {card.step > 0 && (
@@ -812,6 +806,24 @@ function CardView({
       {only && !editing && !card.locked && <Handles k={k} />}
     </div>
   );
+}
+
+/**
+ * A card's own markup, and the arrows between cards.
+ *
+ * Both memoise the whole `dangerouslySetInnerHTML` object rather than the
+ * string inside it: React compares that prop by object identity, so a fresh one
+ * on every render rewrites the element's children even when the markup has not
+ * changed — which, on a board being panned, is every card on every frame.
+ */
+function CardBody({ card, surface }: { card: Card; surface: Board['surface'] }) {
+  const body = useMemo(() => ({ __html: cardHtml(card, surface) }), [card, surface]);
+  return <div className="pointer-events-none h-full w-full" dangerouslySetInnerHTML={body} />;
+}
+
+function Edges({ board }: { board: Board }) {
+  const svg = useMemo(() => ({ __html: edgesSvg(board) }), [board]);
+  return <div className="pointer-events-none absolute left-0 top-0" dangerouslySetInnerHTML={svg} />;
 }
 
 /**

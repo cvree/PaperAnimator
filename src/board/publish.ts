@@ -11,6 +11,10 @@ import {
   surfaceVars,
 } from './paint';
 import { stopSteps } from './board';
+/* The live layer, as source. The presenter imports the same file as a module,
+   so a gesture behaves identically whether the talk is being given from the app
+   or from this one file — there is one implementation, not two. */
+import liveSource from './live.js?raw';
 import type { Board, Card } from './types';
 
 /**
@@ -100,6 +104,8 @@ export async function inlineAssets(
 interface TalkModel {
   title: string;
   surface: string;
+  /** Whether the board's lights are off — the live layer's ink reads off it. */
+  dark: boolean;
   motion: string;
   stops: { title: string; rect: number[]; notes: string; auto: number; steps: number }[];
   cards: {
@@ -186,6 +192,7 @@ export function buildStandalone(
   const model: TalkModel = {
     title: project.title,
     surface: board.surface,
+    dark: palette.dark,
     motion: motionOf(board),
     stops: board.stops.map((s) => ({
       title: s.title,
@@ -260,8 +267,6 @@ ${frames}
 ${edgesSvg(board)}
 ${body}
   </div>
-  <div class="bx-spot" id="bx-spot" hidden></div>
-  <div class="bx-laser" id="bx-laser" hidden></div>
   <div class="bx-black" id="bx-black" hidden></div>
   <aside class="bx-notes" id="bx-notes" hidden></aside>
   <div class="bx-bar"><i id="bx-fill"></i></div>
@@ -274,8 +279,6 @@ ${body}
     </div>
     <div class="bx-group">
       <button id="bx-over" title="Overview (O)">&#9638;</button>
-      <button id="bx-point" title="Pointer (L)">&#9673;</button>
-      <button id="bx-light" title="Spotlight (S)">&#9728;</button>
       ${options.includeNotes ? '<button id="bx-note" title="Notes (N)">&#8801;</button>' : ''}
       <button id="bx-full" title="Full screen (F)">&#9974;</button>
     </div>
@@ -284,6 +287,7 @@ ${body}
 </div>
 <script id="bx-talk" type="application/json">${json}</script>
 <script>
+${liveSource.replace('export { createLive };', '')}
 ${runtime()}
 </script>
 </body>
@@ -325,10 +329,6 @@ function chromeCss(): string {
   box-shadow:0 0 12px var(--bx-glow),0 0 3px var(--bx-glow);
   transition:width 480ms cubic-bezier(.2,.7,.2,1)}
 .bx-black{position:absolute;inset:0;background:#000;z-index:30}
-.bx-spot{position:absolute;inset:0;pointer-events:none;z-index:7}
-.bx-laser{position:absolute;width:22px;height:22px;border-radius:50%;pointer-events:none;z-index:31;
-  background:radial-gradient(circle,rgba(255,255,255,.95) 0%,rgba(255,72,72,.95) 34%,rgba(255,64,64,.28) 62%,transparent 72%);
-  box-shadow:0 0 26px rgba(255,64,64,.75),0 0 60px rgba(255,64,64,.35)}
 .bx-notes{position:absolute;left:16px;bottom:64px;width:26rem;max-width:80vw;max-height:40vh;
   overflow:auto;padding:16px;border-radius:10px;background:var(--bx-ground-edge);color:var(--bx-ink);
   border:1px solid var(--bx-rule);white-space:pre-wrap;z-index:22;
@@ -365,8 +365,6 @@ function runtime(): string {
   var frames = [].slice.call(world.querySelectorAll('.bx-frame'));
   var fill = document.getElementById('bx-fill');
   var count = document.getElementById('bx-count');
-  var laser = document.getElementById('bx-laser');
-  var spotEl = document.getElementById('bx-spot');
   var black = document.getElementById('bx-black');
   var notesEl = document.getElementById('bx-notes');
   var titleEl = document.getElementById('bx-title');
@@ -375,8 +373,9 @@ function runtime(): string {
 
   var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   var still = talk.motion === 'none' || reduced;
-  var index = 0, step = 0, overview = false, pointing = false, spot = false;
+  var index = 0, step = 0, overview = false;
   var raf = 0, timer = 0, idleTimer = 0;
+  var live = null;
   var was = [];
   var pointer = { x: 0, y: 0 };
   var cam = { x: 0, y: 0, zoom: 1 };
@@ -406,6 +405,7 @@ function runtime(): string {
     world.style.transform =
       'translate(' + v.w / 2 + 'px,' + v.h / 2 + 'px) scale(' + cam.zoom + ') translate(' +
       -cam.x + 'px,' + -cam.y + 'px)';
+    if (live) live.moved();
   }
 
   function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
@@ -518,6 +518,7 @@ function runtime(): string {
       else frames[f].removeAttribute('data-here');
     }
     if (titleEl) titleEl.textContent = here && !overview ? here.title : '';
+    if (live) live.slide(overview ? 'overview' : index);
     var stop = here;
     var steps = stop ? stop.steps : 0;
     count.textContent = talk.stops.length
@@ -574,7 +575,8 @@ function runtime(): string {
   }
 
   stage.addEventListener('click', function (e) {
-    if (e.target.closest('.bx-chrome')) return;
+    if (live && live.busy()) return;
+    if (e.target.closest('.bx-chrome') || e.target.closest('.bx-tools')) return;
     var card = e.target.closest('.bx-card');
     var model = card ? talk.cards[+card.getAttribute('data-i')] : null;
     var action = model && model.action;
@@ -602,8 +604,6 @@ function runtime(): string {
     else if (k === 'o' || k === 'O' || k === 'Escape') toggleOverview();
     else if (k === 'b' || k === 'B') { black.hidden = !black.hidden; }
     else if (k === 'n' || k === 'N') { toggleNotes(); }
-    else if (k === 'l' || k === 'L') { togglePointer(); }
-    else if (k === 's' || k === 'S') { toggleSpot(); }
     else if (k === 'f' || k === 'F') { toggleFull(); }
   });
 
@@ -633,39 +633,18 @@ function runtime(): string {
     if (b) { if (notesEl.hidden) b.removeAttribute('data-on'); else b.setAttribute('data-on', '1'); }
     render();
   }
-  function togglePointer() {
-    pointing = !pointing;
-    laser.hidden = !pointing;
-    stage.style.cursor = pointing ? 'none' : '';
-    var b = document.getElementById('bx-point');
-    if (pointing) b.setAttribute('data-on', '1'); else b.removeAttribute('data-on');
-  }
-  /* Everything but a circle round the pointer goes dark — the one thing a
-     laser cannot do, and the thing a recorded talk needs most. */
-  function toggleSpot() {
-    spot = !spot;
-    spotEl.hidden = !spot;
-    paintSpot();
-    var b = document.getElementById('bx-light');
-    if (spot) b.setAttribute('data-on', '1'); else b.removeAttribute('data-on');
-  }
-  function paintSpot() {
-    if (!spot) return;
-    var v = size();
-    var r = Math.round(Math.min(v.w, v.h) * 0.22);
-    spotEl.style.background = 'radial-gradient(circle ' + r + 'px at ' + pointer.x + 'px ' +
-      pointer.y + 'px, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.62) 100%)';
-  }
   /* The controls are for the presenter, not the audience: they leave when the
      hand does, so nothing of ours ends up in the recording. */
   function wake() {
     chrome.setAttribute('data-show', '1');
     if (titleEl) titleEl.setAttribute('data-show', '1');
-    if (!pointing) stage.style.cursor = '';
+    if (live) live.chrome(true);
+    stage.style.cursor = '';
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
       chrome.removeAttribute('data-show');
       if (titleEl) titleEl.removeAttribute('data-show');
+      if (live) live.chrome(false);
       stage.style.cursor = 'none';
     }, 2600);
   }
@@ -679,23 +658,16 @@ function runtime(): string {
     var r = stage.getBoundingClientRect();
     pointer.x = e.clientX - r.left;
     pointer.y = e.clientY - r.top;
-    if (pointing) {
-      laser.style.left = (pointer.x - 11) + 'px';
-      laser.style.top = (pointer.y - 11) + 'px';
-    }
-    paintSpot();
   });
 
   document.getElementById('bx-prev').addEventListener('click', function (e) { e.stopPropagation(); go(-1); });
   document.getElementById('bx-next').addEventListener('click', function (e) { e.stopPropagation(); go(1); });
   document.getElementById('bx-over').addEventListener('click', function (e) { e.stopPropagation(); toggleOverview(); });
-  document.getElementById('bx-point').addEventListener('click', function (e) { e.stopPropagation(); togglePointer(); });
   document.getElementById('bx-full').addEventListener('click', function (e) { e.stopPropagation(); toggleFull(); });
-  document.getElementById('bx-light').addEventListener('click', function (e) { e.stopPropagation(); toggleSpot(); });
   var noteBtn = document.getElementById('bx-note');
   if (noteBtn) noteBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleNotes(); });
 
-  addEventListener('resize', function () { frame(); paintSpot(); });
+  addEventListener('resize', function () { frame(); });
   addEventListener('hashchange', function () {
     var n = parseInt(location.hash.slice(1), 10);
     if (n && n - 1 !== index) goTo(n - 1, 0);
@@ -708,6 +680,17 @@ function runtime(): string {
   if (!talk.stops.length) { overview = true; }
   cam = talk.stops.length ? cameraFor(talk.stops[index].rect, 0.97) : cameraFor(bounds(), 0.88);
   draw();
+
+  /* The live layer, from the same file the presenter imports. */
+  live = createLive({
+    host: stage,
+    getCamera: function () { return cam; },
+    setCamera: function (next) { cancelAnimationFrame(raf); cam = next; draw(); },
+    refit: function () { frame(); },
+    dark: !!talk.dark,
+    reduced: reduced
+  });
+
   render();
   wake();
 })();

@@ -182,13 +182,37 @@ mail out performs.
 and a click on a card can send the camera to another stop, zoom in on the card itself, or
 open a link — one control each. Presenting flies the camera between stops, pulling back far
 enough on a long journey that the audience keeps its bearings. <kbd>→</kbd> and <kbd>←</kbd>
-move, <kbd>O</kbd> shows the whole board at once with its stops drawn on it, <kbd>L</kbd> is a
-pointer, <kbd>S</kbd> is a spotlight that darkens everything but a circle round the cursor,
-<kbd>B</kbd> blacks the screen, <kbd>N</kbd> is your notes, <kbd>F</kbd> is full screen. The
-controls fade out a few seconds after you stop moving the mouse, and the cursor goes with
-them — a talk being recorded should not have our chrome in it. Whatever the current stop does
-not frame is dimmed and thrown out of focus, so an audience always knows where to look. A stop
-can also be told to move on by itself, for a talk left running at a poster session.
+move, <kbd>O</kbd> shows the whole board at once with its stops drawn on it, <kbd>B</kbd>
+blacks the screen, <kbd>N</kbd> is your notes, <kbd>F</kbd> is full screen. The controls fade
+out a few seconds after you stop moving the mouse, and the cursor goes with them — a talk
+being recorded should not have our chrome in it. Whatever the current stop does not frame is
+dimmed and thrown out of focus, so an audience always knows where to look. A stop can also be
+told to move on by itself, for a talk left running at a poster session.
+
+**And you can do things to it while you are talking.** A deck plays; a talk is performed. What
+you would do with your hands — point at the thing, circle the number, push in on the corner of
+the figure somebody just asked about — cannot be authored in advance, because none of it is
+known in advance. So it is all at run time, and none of it touches the project:
+
+| | |
+|---|---|
+| <kbd>D</kbd> | Draw over the slide. The stroke thins where your hand moved quickly, and the ink belongs to the slide you drew it on — leave and come back and it is still there. |
+| <kbd>H</kbd> | The same, as a highlighter, blended into the board rather than laid over it. |
+| <kbd>E</kbd> <kbd>X</kbd> | Rub out one stroke; wipe the slide. |
+| <kbd>1</kbd>–<kbd>5</kbd> | Change the ink. |
+| <kbd>L</kbd> <kbd>S</kbd> | Laser pointer; spotlight, which darkens everything but a circle round the cursor. |
+| <kbd>Z</kbd> | Push in on whatever you are pointing at, and keep pointing. It is the real camera, not a lens over a picture of one, so the type stays type and the ink you drew scales with it. |
+| <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> | Zoom in, out, back to the slide. |
+| <kbd>.</kbd> or <kbd>⌥</kbd>-click | A ring where you pointed — the gesture for *this, here, now*. |
+| <kbd>⌥</kbd>-click a card | It jumps, for the sentence that is about it. |
+| <kbd>⇧</kbd>-click a card | Everything else steps back, for the question you are answering. |
+| <kbd>T</kbd> | A talk timer. <kbd>⇧T</kbd> resets it. |
+| <kbd>?</kbd> | All of the above, on screen, so you never have to remember it. |
+
+Ink is a gesture, not an edit: it is never written to the project and it goes when the talk
+does. Every one of these is `src/board/live.js`, which the presenter imports as a module and
+the publisher inlines as source — one implementation, so the file you hand somebody performs
+the same gestures the app does.
 
 **Finishing it gives you a link.** *Get the link* writes the whole thing — cards, figures,
 camera, behaviour and a few hundred bytes of its own runtime — into one HTML file with the
@@ -248,7 +272,7 @@ real browser against `npm run preview`.
 | `tools/exports.mjs` | Runs every export for real and reports the bytes and file types |
 | `tools/playback.mjs` | Plays the exported video and samples frames from it |
 | `tools/a11y.mjs` | Mobile layout, reduced motion, and a keyboard-only path |
-| `tools/board.mjs` | The board built from a real paper, photographed in all six surfaces, then presented and published — the same talk in the editor, in the presenter and in the file you hand out |
+| `tools/board.mjs` | The board built from a real paper, photographed in all six surfaces, then performed — ink, highlighter, a ring, a card made to jump, everything else stepped back, a push-in — and published, with the same gestures made again in the file you hand out |
 | `tools/theme.mjs` | The dark Press appearance across all three phases |
 | `tools/landing.mjs` | The landing page, scrolled |
 

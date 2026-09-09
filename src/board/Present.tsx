@@ -15,9 +15,10 @@ import {
   rectContains,
   stopSteps,
 } from './board';
-import { cardBody, countFrame, countPlan, edgesSvg, motionOf, surfaceVars } from './paint';
+import { cardBody, countFrame, countPlan, edgesSvg, motionOf, paletteOf, surfaceVars } from './paint';
+import { createLive, type LiveLayer } from './live.js';
 import { useBoardUi } from './boardStore';
-import type { Board, Card, CardId, Stop } from './types';
+import type { Board, Camera, Card, CardId, Stop } from './types';
 
 /**
  * Presenting.
@@ -31,6 +32,11 @@ import type { Board, Card, CardId, Stop } from './types';
  * Everything a card does on arrival is CSS defined in `paint.ts`, which the
  * published page uses too: an entrance you liked in rehearsal is the entrance
  * the file you mail out performs.
+ *
+ * What you do to a slide while you are standing in front of it — ink, the
+ * pointer, pushing in on a figure somebody asked about — is `live.js`, mounted
+ * here and inlined into the published page, so the gestures are the same
+ * wherever the talk is being given from.
  */
 
 /** Long enough to read the controls, short enough to be gone from a recording. */
@@ -55,10 +61,8 @@ export function Present({
   const [overview, setOverview] = useState(false);
   const [blackout, setBlackout] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
-  const [laserOn, setLaserOn] = useState(false);
-  const [spotOn, setSpotOn] = useState(false);
   const [idle, setIdle] = useState(false);
+  const liveLayer = useRef<LiveLayer | null>(null);
   /* Bumped by movement, throttled — the effect below reads it as "still here". */
   const [awake, setAwake] = useState(0);
   const lastWake = useRef(0);
@@ -153,14 +157,6 @@ export function Present({
         case 'N':
           setNotesOpen((v) => !v);
           break;
-        case 'l':
-        case 'L':
-          setLaserOn((v) => !v);
-          break;
-        case 's':
-        case 'S':
-          setSpotOn((v) => !v);
-          break;
         case 'f':
         case 'F':
           if (document.fullscreenElement) void document.exitFullscreen();
@@ -185,6 +181,52 @@ export function Present({
     return () => clearTimeout(timer);
   }, [stop, step, overview, go]);
 
+  /* ---- what you do to the slide while you are standing in front of it ---- */
+
+  /* The camera the live layer puts back when you let go of a magnifier. */
+  const framing = useRef<() => void>(() => {});
+  framing.current = () => {
+    const { viewport: v } = useBoardUi.getState();
+    const target = board.stops[stopIndex];
+    if (target && v.w) useBoardUi.getState().flyTo(cameraFor(target.rect, v.w, v.h, 0.97), 420);
+  };
+
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    const layer = createLive({
+      host: el,
+      getCamera: () => useBoardUi.getState().camera,
+      setCamera: (c: Camera) => useBoardUi.getState().setCamera(c),
+      refit: () => framing.current(),
+      dark: paletteOf(board.surface).dark,
+      reduced,
+    });
+    liveLayer.current = layer;
+    return () => {
+      layer.destroy();
+      liveLayer.current = null;
+    };
+    // The surface is the only thing here worth remounting for: it decides the
+    // ink colours and how a highlighter blends with the board underneath it.
+  }, [board.surface, reduced]);
+
+  /* Ink belongs to the slide it was drawn on. */
+  useEffect(() => {
+    liveLayer.current?.slide(overview ? 'overview' : stopIndex);
+  }, [stopIndex, overview]);
+
+  /* Every stroke is held in world units, so a camera that moves has to
+     re-project them — which is also what makes ink stick to a figure you then
+     push in on. */
+  useEffect(() => {
+    liveLayer.current?.moved();
+  }, [camera]);
+
+  useEffect(() => {
+    liveLayer.current?.chrome(!idle);
+  }, [idle]);
+
   /* ---- the controls get out of the way ----------------------------------- */
   const wake = useCallback(() => {
     const now = performance.now();
@@ -200,6 +242,7 @@ export function Present({
   }, [awake]);
 
   const cards = useMemo(() => [...board.cards].sort((a, b) => a.z - b.z), [board]);
+  const edges = useMemo(() => ({ __html: edgesSvg(board) }), [board]);
 
   /**
    * The order things arrive in, which is reading order within the click they
@@ -281,16 +324,11 @@ export function Present({
       data-motion={motion}
       style={{
         ...(surfaceVars(board.surface) as CSSProperties),
-        cursor: laserOn ? 'none' : idle ? 'none' : 'default',
+        cursor: idle ? 'none' : 'default',
       }}
-      onPointerMove={(e) => {
-        wake();
-        const rect = host.current?.getBoundingClientRect();
-        if (rect && (laserOn || spotOn)) {
-          setLaser({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-        }
-      }}
+      onPointerMove={wake}
       onClick={(e) => {
+        if (liveLayer.current?.busy()) return;
         const target = e.target as HTMLElement;
         const id = target.closest('[data-card-id]')?.getAttribute('data-card-id');
         const card = id ? board.cards.find((c) => c.id === id) : null;
@@ -348,7 +386,7 @@ export function Present({
         <div
           className="pointer-events-none absolute left-0 top-0"
           style={{ opacity: overview ? 1 : 0.55 }}
-          dangerouslySetInnerHTML={{ __html: edgesSvg(board) }}
+          dangerouslySetInnerHTML={edges}
         />
 
         {cards.map((card) => (
@@ -367,19 +405,6 @@ export function Present({
       </div>
 
       {/* ---------- the room ---------- */}
-      {spotOn && laser && (
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            zIndex: 7,
-            background: `radial-gradient(circle ${Math.round(
-              Math.min(viewport.w, viewport.h) * 0.22,
-            )}px at ${laser.x}px ${laser.y}px, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.62) 100%)`,
-            transition: 'opacity 240ms ease',
-          }}
-        />
-      )}
-
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -390,23 +415,6 @@ export function Present({
           visibility: blackout ? 'visible' : 'hidden',
         }}
       />
-
-      {laserOn && laser && (
-        <span
-          className="pointer-events-none absolute"
-          style={{
-            left: laser.x - 11,
-            top: laser.y - 11,
-            width: 22,
-            height: 22,
-            zIndex: 31,
-            borderRadius: '50%',
-            background:
-              'radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,72,72,0.95) 34%, rgba(255,64,64,0.28) 62%, transparent 72%)',
-            boxShadow: '0 0 26px rgba(255,64,64,0.75), 0 0 60px rgba(255,64,64,0.35)',
-          }}
-        />
-      )}
 
       {/* ---------- chrome ---------- */}
       <div
@@ -438,12 +446,6 @@ export function Present({
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-full p-1.5" style={glass}>
           <Chip onClick={() => setOverview((v) => !v)} label="Overview (O)" active={overview}>
             ⊞
-          </Chip>
-          <Chip onClick={() => setLaserOn((v) => !v)} label="Pointer (L)" active={laserOn}>
-            ◉
-          </Chip>
-          <Chip onClick={() => setSpotOn((v) => !v)} label="Spotlight (S)" active={spotOn}>
-            ☀
           </Chip>
           <Chip onClick={() => setNotesOpen((v) => !v)} label="Notes (N)" active={notesOpen}>
             ≡
@@ -564,7 +566,16 @@ function PresentCard({
   animate: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const html = useMemo(() => cardBody(card, surface), [card, surface]);
+  /**
+   * The whole prop object is memoised, not just the string inside it.
+   *
+   * React compares `dangerouslySetInnerHTML` by object identity, so a fresh
+   * `{ __html }` on every render rewrites the element's children even when the
+   * markup is identical — which throws away the entrance animation mid-flight
+   * and starts it again. A card would then never finish arriving on any screen
+   * that re-renders per frame, which is exactly what pushing in on one does.
+   */
+  const body = useMemo(() => ({ __html: cardBody(card, surface) }), [card, surface]);
 
   useEffect(() => {
     if (!shown || !animate) return;
@@ -629,7 +640,7 @@ function PresentCard({
           '--bx-i': index,
         } as CSSProperties
       }
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={body}
     />
   );
 }
