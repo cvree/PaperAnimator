@@ -37,6 +37,8 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
 
   const board = project?.board;
   if (!board) return null;
+  /* No paper behind this board — a shared one — so the shelf stays shut. */
+  const hasPaper = project.paper.pages.length > 0;
 
   const setSurface = (surface: Surface) =>
     mutate('Change the board', (d) => {
@@ -53,22 +55,26 @@ export function BoardToolbar({ onPublish }: { onPublish: () => void }) {
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--rule-hairline)] bg-[var(--surface-raised)] px-2">
-      <button
-        type="button"
-        onClick={() => setDrawerOpen(!drawerOpen)}
-        aria-pressed={drawerOpen}
-        title="Content from the paper"
-        className="flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 text-2xs transition-colors"
-        style={{
-          borderColor: drawerOpen ? 'var(--accent)' : 'var(--rule-hairline)',
-          background: drawerOpen ? 'var(--accent-subtle)' : 'transparent',
-          color: 'var(--ink-secondary)',
-        }}
-      >
-        Paper
-      </button>
+      {hasPaper && (
+        <>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(!drawerOpen)}
+            aria-pressed={drawerOpen}
+            title="Content from the paper"
+            className="flex h-8 items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 text-2xs transition-colors"
+            style={{
+              borderColor: drawerOpen ? 'var(--accent)' : 'var(--rule-hairline)',
+              background: drawerOpen ? 'var(--accent-subtle)' : 'transparent',
+              color: 'var(--ink-secondary)',
+            }}
+          >
+            Paper
+          </button>
 
-      <div className="mx-0.5 h-6 w-px bg-[var(--rule-hairline)]" />
+          <div className="mx-0.5 h-6 w-px bg-[var(--rule-hairline)]" />
+        </>
+      )}
 
       <div className="flex shrink-0 items-center gap-0.5">
         {TOOLS.map((t) => (

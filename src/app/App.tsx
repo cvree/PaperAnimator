@@ -10,16 +10,18 @@ import { extractPaper, PdfIntakeError, type Artifact, type PaperSession } from '
 import { collectDiagnostics } from '@/core/diagnostics';
 import { buildSamplePaper } from './sample';
 import { createBoard } from '@/board/board';
-import { TalkLink } from '@/board/TalkLink';
+import { Shared } from '@/board/Shared';
+import { shareRoleOf } from '@/board/share';
 
 export default function App() {
   /**
-   * A published talk can arrive as an address with the whole board inside it.
-   * That is nobody's project — there is no paper behind it and nothing to edit
-   * — so it is answered before the app proper starts.
+   * A shared board can arrive as an address with the whole thing inside it.
+   * That is nobody's project — there is no paper behind it — so it is answered
+   * before the app proper starts, as a talk to watch or a board to work on
+   * depending on which link was sent.
    */
-  const [talkHash] = useState(() =>
-    typeof location !== 'undefined' && location.hash.startsWith('#talk=') ? location.hash : null,
+  const [sharedHash] = useState(() =>
+    typeof location !== 'undefined' && shareRoleOf(location.hash) ? location.hash : null,
   );
 
   const phase = useApp((s) => s.phase);
@@ -146,7 +148,7 @@ export default function App() {
     reset();
   }, [reset]);
 
-  if (talkHash) return <TalkLink hash={talkHash} />;
+  if (sharedHash) return <Shared hash={sharedHash} />;
 
   return (
     <>

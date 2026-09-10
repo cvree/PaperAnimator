@@ -214,13 +214,25 @@ does. Every one of these is `src/board/live.js`, which the presenter imports as 
 the publisher inlines as source — one implementation, so the file you hand somebody performs
 the same gestures the app does.
 
-**Finishing it gives you a link.** *Get the link* writes the whole thing — cards, figures,
+**Share is at the top right, and it asks one question.** Viewer or editor — the same two
+answers a document has always had. A *viewer* link opens the talk: full screen, click to
+advance, nothing movable. An *editor* link opens the board itself, with every tool in reach.
+Both are one button away: pick the role, press *Copy link*, paste it wherever you were going
+to paste it.
+
+The board rides inside the fragment of the address, which browsers never send to a server.
+So sharing uploads nothing, needs no account, works with the network off once the page is
+open, and keeps working if we do not. The cost of that is stated in the sheet rather than
+hidden: **an editor link hands over a copy.** Two people with the same link are working on
+two boards, and the way back to one board is to send a new link. This is link sharing, not a
+live document, and nothing in the interface pretends otherwise.
+
+**Finishing it gives you a file too.** *Get the link* writes the whole thing — cards, figures,
 camera, behaviour and a few hundred bytes of its own runtime — into one HTML file with the
 images inside it. Open it from a USB stick, mail it, or drop it on any static host: it is the
-same presentation, offline, with nothing phoning home. A board light enough also gets a
-second form, an address that carries the talk inside its own fragment, which opens here and
-uploads nothing to anyone. Slide numbers live in the address, so a link can point at one
-stop.
+same presentation, offline, with nothing phoning home. That is the answer when a board is too
+heavy to travel in an address, and the share sheet says so and offers it. Slide numbers live
+in the address, so a link can point at one stop.
 
 ---
 
@@ -273,6 +285,7 @@ real browser against `npm run preview`.
 | `tools/playback.mjs` | Plays the exported video and samples frames from it |
 | `tools/a11y.mjs` | Mobile layout, reduced motion, and a keyboard-only path |
 | `tools/board.mjs` | The board built from a real paper, photographed in all six surfaces, then performed — ink, highlighter, a ring, a card made to jump, everything else stepped back, a push-in — and published, with the same gestures made again in the file you hand out |
+| `tools/share.mjs` | Sharing end to end: both links taken off the clipboard and opened in a browser that has never seen the app — the viewer one arriving at the talk, the editor one at the board with the cards still on it |
 | `tools/theme.mjs` | The dark Press appearance across all three phases |
 | `tools/landing.mjs` | The landing page, scrolled |
 

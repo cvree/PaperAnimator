@@ -11,6 +11,7 @@ import {
   surfaceVars,
 } from './paint';
 import { stopSteps } from './board';
+import { encodeShareLink, inlineAssets, SHARE_BUDGET } from './share';
 /* The live layer, as source. The presenter imports the same file as a module,
    so a gesture behaves identically whether the talk is being given from the app
    or from this one file — there is one implementation, not two. */
@@ -45,56 +46,6 @@ export interface Published {
   hashBytes: number;
   assetsInlined: number;
   assetsFailed: number;
-}
-
-/* ============================================================================
-   Assets
-   ========================================================================== */
-
-async function toDataUrl(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
-function cardAssets(board: Board): string[] {
-  const urls = new Set<string>();
-  for (const card of board.cards) {
-    if (card.kind === 'image' && card.src) urls.add(card.src);
-    if (card.kind === 'table' && card.src) urls.add(card.src);
-  }
-  return [...urls];
-}
-
-/** Object URLs die with the tab, so every image is carried inside the file. */
-export async function inlineAssets(
-  board: Board,
-  onProgress?: (stage: string, progress: number) => void,
-): Promise<{ map: Map<string, string>; failed: number }> {
-  const urls = cardAssets(board);
-  const map = new Map<string, string>();
-  let failed = 0;
-  for (const [i, url] of urls.entries()) {
-    onProgress?.('Packing images', urls.length ? (i + 1) / urls.length : 1);
-    if (url.startsWith('data:')) {
-      map.set(url, url);
-      continue;
-    }
-    const data = await toDataUrl(url);
-    if (data) map.set(url, data);
-    else failed++;
-  }
-  return { map, failed };
 }
 
 /* ============================================================================
@@ -701,9 +652,6 @@ function runtime(): string {
    Publishing
    ========================================================================== */
 
-/** Roughly what a link can carry before mail clients start breaking it. */
-const HASH_BUDGET = 900_000;
-
 export async function publish(project: Project, options: PublishOptions): Promise<Published> {
   options.onProgress?.('Packing images', 0.05);
   const { map, failed } = await inlineAssets(project.board, options.onProgress);
@@ -712,8 +660,10 @@ export async function publish(project: Project, options: PublishOptions): Promis
   const html = buildStandalone(project, map, options);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
 
+  /* The pasteable form of a finished talk is exactly the viewer share link, so
+     it is written by the same code rather than by a second one that drifts. */
   options.onProgress?.('Making the link', 0.9);
-  const hash = await encodeTalkLink(project, map);
+  const hash = await encodeShareLink(project, map, 'viewer');
 
   options.onProgress?.('Done', 1);
   return {
@@ -721,92 +671,11 @@ export async function publish(project: Project, options: PublishOptions): Promis
     blob,
     objectUrl: URL.createObjectURL(blob),
     bytes: blob.size,
-    hashUrl: hash && hash.length < HASH_BUDGET ? hash : null,
+    hashUrl: hash && hash.length <= SHARE_BUDGET ? hash : null,
     hashBytes: hash ? hash.length : 0,
     assetsInlined: map.size,
     assetsFailed: failed,
   };
-}
-
-/* ============================================================================
-   The address-bar link
-   ========================================================================== */
-
-/**
- * A board small enough to travel in a URL travels in one. It is gzipped and
- * base64url'd into the fragment, which never leaves the browser it is pasted
- * into — no server sees the talk, and no server has to.
- */
-export async function encodeTalkLink(
-  project: Project,
-  assets: Map<string, string>,
-): Promise<string | null> {
-  const board = project.board;
-  const packed: Board = {
-    ...board,
-    cards: board.cards.map((card) => {
-      if (card.kind === 'image' || card.kind === 'table') {
-        return { ...card, src: card.src ? (assets.get(card.src) ?? null) : null };
-      }
-      return card;
-    }),
-  };
-  const payload = JSON.stringify({ v: 1, title: project.title, board: packed });
-
-  try {
-    const bytes = new TextEncoder().encode(payload);
-    let compressed: Uint8Array;
-    if (typeof CompressionStream === 'function') {
-      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
-      compressed = new Uint8Array(await new Response(stream).arrayBuffer());
-    } else {
-      compressed = bytes;
-    }
-    const encoded = base64Url(compressed, typeof CompressionStream === 'function');
-    const base = `${location.origin}${location.pathname}`;
-    return `${base}#talk=${encoded}`;
-  } catch {
-    return null;
-  }
-}
-
-function base64Url(bytes: Uint8Array, gzipped: boolean): string {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  const b64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `${gzipped ? 'z' : 'r'}.${b64}`;
-}
-
-/** The other half of {@link encodeTalkLink}, used when the app opens on a link. */
-export async function decodeTalkLink(
-  hash: string,
-): Promise<{ title: string; board: Board } | null> {
-  const raw = hash.startsWith('#talk=') ? hash.slice(6) : hash.startsWith('talk=') ? hash.slice(5) : null;
-  if (!raw) return null;
-  try {
-    const [flag, body] = raw.split('.');
-    if (!body) return null;
-    const b64 = body.replace(/-/g, '+').replace(/_/g, '/');
-    const binary = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-    let json: string;
-    if (flag === 'z' && typeof DecompressionStream === 'function') {
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-      json = await new Response(stream).text();
-    } else {
-      json = new TextDecoder().decode(bytes);
-    }
-    const parsed = JSON.parse(json) as { v: number; title: string; board: Board };
-    if (!parsed?.board?.cards) return null;
-    return { title: parsed.title, board: parsed.board };
-  } catch {
-    return null;
-  }
 }
 
 /** Save the published file to disk. */

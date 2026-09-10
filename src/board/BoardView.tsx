@@ -32,6 +32,9 @@ export function BoardView() {
 
   if (!project) return null;
   const narrow = size === 'mobile';
+  /* A board that arrived as a link has no paper behind it, so the shelf that
+     holds the paper's figures is not offered rather than offered empty. */
+  const hasPaper = project.paper.pages.length > 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -47,7 +50,7 @@ export function BoardView() {
         <>
           <BoardToolbar onPublish={() => setPublishing(true)} />
           <div className="flex min-h-0 flex-1">
-            {drawerOpen && !narrow && (
+            {drawerOpen && hasPaper && !narrow && (
               <aside
                 aria-label="Content from the paper"
                 className="w-64 shrink-0 border-r border-[var(--rule-hairline)]"

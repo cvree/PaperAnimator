@@ -5,6 +5,7 @@ import { STYLES, STYLE_ORDER } from '@/render/styles';
 import { Segmented } from '@/ui/Segmented';
 import type { StyleId } from '@/core/types';
 import { useState } from 'react';
+import { ShareMenu } from '@/board/ShareMenu';
 
 export function EditorTopBar() {
   const project = useApp((s) => s.project);
@@ -161,9 +162,13 @@ export function EditorTopBar() {
           onClick={() => setView(view === 'integrity' ? 'compose' : 'integrity')}
         />
 
-        <Button variant="primary" size="md" onClick={() => setView('export')}>
+        <Button variant="secondary" size="md" onClick={() => setView('export')}>
           Export
         </Button>
+
+        {/* Handing the board to somebody: the far top right, where everybody
+            has already learned to look for it. */}
+        <ShareMenu />
       </div>
     </header>
   );
