@@ -479,7 +479,7 @@ function runtime(): string {
       ? (index + (steps ? step / (steps + 1) : 0) + 1) / talk.stops.length
       : 0;
     fill.style.width = (progress * 100) + '%';
-    if (notesEl && !notesEl.hidden) notesEl.textContent = notesFor(index) || 'No notes for this stop.';
+    if (notesEl && !notesEl.hidden) notesEl.textContent = notesFor(index) || 'No notes for this slide.';
     if (location.hash !== '#' + (index + 1)) history.replaceState(null, '', '#' + (index + 1));
     clearTimeout(timer);
     if (stop && stop.auto && !overview) timer = setTimeout(function () { go(1); }, stop.auto);

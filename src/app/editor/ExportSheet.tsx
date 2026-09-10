@@ -148,8 +148,8 @@ export function ExportSheet() {
         <h1 className="display-md text-[var(--ink-primary)]">Export</h1>
         <p className="mt-3 max-w-[52ch] text-base leading-[1.6] text-[var(--ink-secondary)]">
           {project.scenes.filter((s) => !s.hidden).length} scenes ·{' '}
-          <span className="numeral">{formatDuration(total)}</span> · rendered in this browser from
-          the same frame function that draws the preview.
+          <span className="numeral">{formatDuration(total)}</span> · made in this browser, exactly
+          as you saw it.
         </p>
 
         {/* validation */}
@@ -378,9 +378,8 @@ export function ExportSheet() {
         )}
 
         <p className="mt-10 max-w-[60ch] text-2xs leading-[1.55] text-[var(--ink-faint)]">
-          Narration is read by your browser's own speech engine, which cannot be captured into a
-          video file. Video exports are silent and carry captions; the SRT, WebVTT and transcript
-          exports contain every spoken line with the page it came from.
+          Your browser's voice cannot be recorded, so video exports are silent and carry captions.
+          The caption and transcript files hold every spoken line with its page.
         </p>
       </div>
     </div>

@@ -156,7 +156,7 @@ function EmptyRail() {
       targetDurationMs: project.settings.targetDurationMs,
     });
     if (!scenes.length) {
-      showToast('There was not enough structure in this paper to draft from');
+      showToast('This paper has too little structure to draft from');
       return;
     }
     mutate('Draft a storyboard', (d) => {

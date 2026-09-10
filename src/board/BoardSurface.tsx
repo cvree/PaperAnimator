@@ -197,7 +197,7 @@ export function BoardSurface() {
 
   const removeStop = useCallback(
     (id: StopId) => {
-      editBoard('Delete stop', (b) => {
+      editBoard('Delete slide', (b) => {
         b.stops = b.stops.filter((s) => s.id !== id);
       });
       useBoardUi.getState().selectStop(null);
@@ -526,7 +526,7 @@ export function BoardSurface() {
             h,
           };
         }
-        editBoard('Add stop', (b) => {
+        editBoard('Add slide', (b) => {
           b.stops.push(stop);
         });
         useBoardUi.getState().selectStop(stop.id);

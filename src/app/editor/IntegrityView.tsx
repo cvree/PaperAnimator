@@ -158,8 +158,7 @@ export function IntegrityView({ embedded = false }: { embedded?: boolean }) {
               : `${integrity.groundedAtoms} of ${integrity.factualAtoms} claims trace back to your paper. Nothing is flagged.`}
           </p>
           <p className="mx-auto mt-2 max-w-[46ch] text-xs leading-[1.55] text-[var(--ink-tertiary)]">
-            The composer selects sentences rather than writing them, so there is nothing to
-            fact-check that the paper does not already say.
+            Scenes are built from sentences in your paper, not written from scratch.
             {integrity.counts.connective > 0 &&
               ` The other ${integrity.counts.connective} line${
                 integrity.counts.connective === 1 ? '' : 's'

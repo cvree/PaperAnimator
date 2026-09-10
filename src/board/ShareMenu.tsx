@@ -140,7 +140,7 @@ export function ShareMenu({ label = 'Share' }: { label?: string }) {
             </p>
             <p className="mt-1 text-2xs leading-[1.5] text-[var(--ink-faint)]">
               {project.board.cards.length} card
-              {project.board.cards.length === 1 ? '' : 's'} · {project.board.stops.length} stop
+              {project.board.cards.length === 1 ? '' : 's'} · {project.board.stops.length} slide
               {project.board.stops.length === 1 ? '' : 's'}
             </p>
 
@@ -209,29 +209,28 @@ export function ShareMenu({ label = 'Share' }: { label?: string }) {
             {/* Everything that could go wrong, said plainly and only when true. */}
             {failed && (
               <p className="mt-3 text-2xs leading-[1.5] text-[var(--ink-secondary)]">
-                The link could not be written. Publishing it as a file works whatever the board
-                weighs.
+                The link could not be made. Publish it as a file instead.
               </p>
             )}
 
             {link && !link.url && !failed && (
               <p className="mt-3 text-2xs leading-[1.5] text-[var(--ink-secondary)]">
-                This board is {formatBytes(link.bytes)} once packed — too much for an address bar.
-                Publish it as a file instead; that one has no size limit and works everywhere.
+                This board is {formatBytes(link.bytes)} — too big for a link. Publish it as a file
+                instead; that has no size limit.
               </p>
             )}
 
             {link && link.assetsFailed > 0 && (
               <p className="mt-2 text-2xs leading-[1.5] text-[var(--ink-faint)]">
-                {link.assetsFailed} image{link.assetsFailed === 1 ? '' : 's'} could not be packed
-                into the link and will be missing for whoever opens it.
+                {link.assetsFailed} image{link.assetsFailed === 1 ? '' : 's'} would not fit in the
+                link and will be missing for whoever opens it.
               </p>
             )}
 
             <p className="mt-3 border-t border-[var(--rule-hairline)] pt-3 text-2xs leading-[1.5] text-[var(--ink-faint)]">
               {role === 'editor'
-                ? 'The whole board rides inside the address — nothing is uploaded. An editor link hands over a copy: their changes stay theirs, and yours stay yours, until one of you sends a new link.'
-                : 'The whole talk rides inside the address — nothing is uploaded, and it opens with no account. A viewer link opens the talk rather than the tools, which decides what somebody is handed; the board still travels inside the address, so it is not a way to keep a board from anyone.'}
+                ? 'The whole board travels inside the link — nothing is uploaded. It hands over a copy: their changes stay theirs, and yours stay yours.'
+                : 'The whole talk travels inside the link — nothing is uploaded, and it opens with no account.'}
             </p>
 
             <button

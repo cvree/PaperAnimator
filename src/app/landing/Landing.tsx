@@ -92,9 +92,9 @@ export function Landing({ onFile, onSample }: Props) {
                 data-hero-tail
                 className="mt-6 max-w-[40ch] text-base leading-[1.6] text-[var(--ink-secondary)]"
               >
-                Paper Animator reads your PDF, pulls out its figures, statistics and
-                findings, and builds an animated presentation where every claim traces back
-                to the page it came from.
+                Paper Animator reads your PDF and builds an animated presentation from its
+                figures, numbers and findings — every claim still linked to the page it came
+                from.
               </p>
 
               <div data-hero-tail className="mt-7">
@@ -105,7 +105,7 @@ export function Landing({ onFile, onSample }: Props) {
             <div className="relative">
               <HeroTransformation reducedMotion={reducedMotion} />
               <p className="mt-4 text-center text-2xs text-[var(--ink-faint)]">
-                An illustration of the transformation — not a real paper.
+                An illustration, not a real paper.
               </p>
             </div>
           </div>
@@ -121,9 +121,8 @@ export function Landing({ onFile, onSample }: Props) {
               You make the presentation by touching the paper.
             </h2>
             <p className="mt-6 max-w-[54ch] text-lg leading-[1.6] text-[var(--ink-secondary)]">
-              There is no blank canvas and no prompt box. You highlight a sentence and it
-              becomes a scene. You drag a figure and it lands on the slide. You click a
-              claim and the page it came from lights up.
+              There is no blank canvas and no prompt box. You mark what matters in the PDF, and
+              the talk is built out of it.
             </p>
           </div>
 
@@ -131,25 +130,24 @@ export function Landing({ onFile, onSample }: Props) {
             <Interaction
               index="01"
               title="Highlight it"
-              body="Select any sentence in the paper. It becomes a scene with its source already attached — you never do the bookkeeping."
+              body="Select any sentence in the paper and it becomes a scene, with its source already attached."
               demo={<HighlightDemo />}
             />
             <Interaction
               index="02"
               title="Pull it out"
-              body="Drag a figure, a table or a passage straight onto the canvas. Provenance travels with it, so nothing arrives unattributed."
+              body="Drag a figure, a table or a passage straight onto the slide. Its page reference comes with it."
               demo={<DragDemo />}
             />
             <Interaction
               index="03"
               title="Prove it"
-              body="Click any claim and the source pane scrolls to the exact page and flashes the sentence. Click the source, and every scene using it lights up."
+              body="Click any claim and the paper jumps to the sentence it came from. Click the sentence and every scene using it lights up."
               demo={<ProveDemo />}
             />
           </div>
           <p className="mt-4 text-2xs text-[var(--ink-faint)]">
-            All three are live — read the sentence aloud, drag the figure, pull the thread. The
-            words and the number are illustrative; the mechanisms are the real ones.
+            All three are live. Try them.
           </p>
         </section>
 
@@ -164,13 +162,12 @@ export function Landing({ onFile, onSample }: Props) {
                 Accuracy is a feature, not a disclaimer.
               </h2>
               <p className="mt-6 max-w-[52ch] text-lg leading-[1.6] text-[var(--ink-secondary)]">
-                Every piece of content on screen carries a label saying where it came from.
-                Nothing is generated and quietly presented as fact — the composer selects
-                sentences from your paper rather than writing new ones.
+                Everything on screen is labelled with where it came from. Scenes are built from
+                sentences in your paper, not written from scratch.
               </p>
               <p className="mt-4 max-w-[52ch] text-base leading-[1.65] text-[var(--ink-tertiary)]">
-                A project-wide score tells you how much of your presentation is grounded,
-                and what still needs a look, before you show it to anyone.
+                A score shows how much of your talk is backed by the paper, and what still needs
+                a look, before you show it to anyone.
               </p>
             </div>
 
@@ -188,8 +185,8 @@ export function Landing({ onFile, onSample }: Props) {
                 <EvidenceRow key={kind} kind={kind} text={text} />
               ))}
               <p className="pt-3 text-xs text-[var(--ink-faint)]">
-                The last one is amber, not red. It is unreviewed, not wrong — and it cannot
-                be narrated as fact until you have looked at it.
+                The last one is amber, not red: unreviewed, not wrong. It is not narrated as fact
+                until you have looked at it.
               </p>
             </div>
           </div>
@@ -205,9 +202,8 @@ export function Landing({ onFile, onSample }: Props) {
               Real files, made in your browser.
             </h2>
             <p className="mt-6 max-w-[54ch] text-lg leading-[1.6] text-[var(--ink-secondary)]">
-              Video, slides, images, captions, transcript, and an editable project file.
-              Each one is produced from the same frame function that draws the preview, so
-              what you export is what you watched.
+              Video, slides, images, captions, transcript, and an editable project file —
+              every one of them exactly what you watched.
             </p>
           </div>
 
@@ -231,9 +227,8 @@ export function Landing({ onFile, onSample }: Props) {
           </div>
 
           <p className="mt-4 max-w-[62ch] text-2xs leading-[1.55] text-[var(--ink-faint)]">
-            Narration is read by your browser's own speech engine, which cannot be captured into a
-            video file, so the video is silent and carries captions. The captions, transcript and
-            speaker notes contain every spoken line with the page it came from.
+            Your browser's voice cannot be recorded, so the video is silent and carries captions.
+            The captions, transcript and speaker notes hold every spoken line with its page.
           </p>
         </section>
 
@@ -244,8 +239,7 @@ export function Landing({ onFile, onSample }: Props) {
           <div data-reveal className="mx-auto max-w-[44rem] text-center">
             <h2 className="display-lg text-[var(--ink-primary)]">Start with your paper.</h2>
             <p className="mx-auto mt-6 max-w-[46ch] text-lg leading-[1.6] text-[var(--ink-secondary)]">
-              It is read on your own machine. Nothing is uploaded, nothing is stored, and
-              nothing is used for training.
+              It is read on your own machine. Nothing is uploaded, stored, or used for training.
             </p>
             <div className="mt-10 flex justify-center">
               <Dropzone onFile={onFile} onSample={onSample} />
@@ -339,10 +333,7 @@ function SiteFooter() {
           <Mark size={16} />
           <span>Paper Animator</span>
         </div>
-        <p className="max-w-[46ch]">
-          Your paper is read in this browser tab. It is never uploaded, never stored, and
-          never used for training.
-        </p>
+        <p className="max-w-[46ch]">Your paper never leaves this browser tab.</p>
       </div>
     </footer>
   );

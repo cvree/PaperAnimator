@@ -59,8 +59,8 @@ export function BoardInspector() {
     const rect = stopForSelection(board, selection);
     const made = makeStop(board, { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 });
     made.rect = rect;
-    mutate('Add stop', (d) => {
-      d.board.stops.push({ ...made, title: `Stop ${d.board.stops.length + 1}` });
+    mutate('Add slide', (d) => {
+      d.board.stops.push({ ...made, title: `Slide ${d.board.stops.length + 1}` });
     });
     useBoardUi.getState().selectStop(made.id);
   };
@@ -76,14 +76,14 @@ export function BoardInspector() {
             onClick={addStop}
             className="text-2xs font-medium text-[var(--accent)]"
           >
-            {selection.length ? 'Stop around selection' : 'Add stop'}
+            {selection.length ? 'Slide around selection' : 'Add slide'}
           </button>
         </div>
 
         {board.stops.length === 0 ? (
           <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-            A stop is a place the camera goes. Draw one with the slide tool, or select a few cards
-            and frame them here. The order of the stops is the order of the talk.
+            A slide is a part of the board the talk stops on. Draw one with the slide tool, or
+            select some cards and frame them here. They run in the order you draw them.
           </p>
         ) : (
           <ol className="space-y-1">
@@ -130,13 +130,13 @@ export function BoardInspector() {
       {/* ---------- the selected stop ---------- */}
       {stop && (
         <section className="space-y-3 border-b border-[var(--rule-hairline)] p-3">
-          <p className="label">Stop</p>
+          <p className="label">Slide</p>
           <Field label="Title">
             <input
               value={stop.title}
               onChange={(e) =>
                 mutate(
-                  'Rename stop',
+                  'Rename slide',
                   (d) => {
                     const target = d.board.stops.find((s) => s.id === stop.id);
                     if (target) target.title = e.target.value;
@@ -188,7 +188,7 @@ export function BoardInspector() {
               size="sm"
               variant="secondary"
               onClick={() =>
-                mutate('Refit stop', (d) => {
+                mutate('Refit slide', (d) => {
                   const target = d.board.stops.find((s) => s.id === stop.id);
                   if (!target) return;
                   const inside = cardsInStop(d.board, target).map((c) => c.rect);
@@ -202,7 +202,7 @@ export function BoardInspector() {
               size="sm"
               variant="ghost"
               onClick={() => {
-                mutate('Delete stop', (d) => {
+                mutate('Delete slide', (d) => {
                   d.board.stops = d.board.stops.filter((s) => s.id !== stop.id);
                 });
                 useBoardUi.getState().selectStop(null);
@@ -322,7 +322,7 @@ export function BoardInspector() {
               }
               className="input"
             >
-              <option value={0}>With the stop</option>
+              <option value={0}>With the slide</option>
               <option value={1}>On click 1</option>
               <option value={2}>On click 2</option>
               <option value={3}>On click 3</option>
@@ -584,7 +584,7 @@ function reorder(
   id: StopId,
   delta: number,
 ): void {
-  mutate('Reorder stops', (d) => {
+  mutate('Reorder slides', (d) => {
     const stops = d.board.stops;
     const i = stops.findIndex((s) => s.id === id);
     const j = i + delta;

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useApp, useSelectedScene } from '@/state/store';
 import { PROVENANCE_META, provenanceRef, type Layer, type Provenance } from '@/core/types';
 import { listVoices, speechSupported, type Voice } from '@/narrate/speech';
-import { HOLDS, MOTIONS, motionDef } from '@/render/motion';
+import { HOLDS, MOTIONS, TRANSITIONS, motionDef } from '@/render/motion';
 import { Spark } from './SceneRail';
 import { useEffect } from 'react';
 
@@ -394,16 +394,15 @@ function MotionTab({ layer }: { layer: Layer | null }) {
             }
             className="input"
           >
-            {['dissolve', 'crop', 'turn', 'recompose', 'cut'].map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {TRANSITIONS.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
               </option>
             ))}
           </select>
         </Field>
         <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-          The gallery animates every element on the scene at once. Select one to give it its own
-          entrance.
+          Select an element to give it its own entrance.
         </p>
       </div>
     );
@@ -494,10 +493,7 @@ function MotionTab({ layer }: { layer: Layer | null }) {
         />
       </Field>
 
-      <Field
-        label="With reduced motion"
-        hint="Required. Every motion has to say what it becomes when movement is off."
-      >
+      <Field label="With reduced motion" hint="What this becomes when movement is turned off.">
         <select
           value={layer.enter.reducedMotion}
           onChange={(e) => set({ reducedMotion: e.target.value as 'fade' | 'none' })}
@@ -544,10 +540,7 @@ function VoiceTab() {
           onChange={setVoicePreview}
         />
         <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-          Off by default. The browser's synthetic voice is not what your talk will sound like, and
-          having it recite over you while you work is worse than silence. Captions, the reading
-          marker and the exported transcript all run without it. Nothing exported carries this
-          voice either way.
+          Captions, the marker and the transcript all work without it. No export carries this voice.
         </p>
       </div>
 
@@ -584,9 +577,8 @@ function VoiceTab() {
       />
 
       <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-        With the voice on, the engine reports where each word begins as it speaks. Those timings
-        are saved, so the marker tracks the voice exactly on the next play. With it off, the
-        marker runs on the estimate the scene was composed with.
+        Playing it once teaches the marker the real word timings, so it tracks the voice exactly
+        after that.
       </p>
     </div>
   );
@@ -604,11 +596,8 @@ function AccessTab({ layer }: { layer: Layer | null }) {
     return (
       <div className="space-y-3">
         <p className="text-2xs leading-[1.5] text-[var(--ink-tertiary)]">
-          Select a figure or table to write its description.
-        </p>
-        <p className="text-2xs leading-[1.5] text-[var(--ink-faint)]">
-          Descriptions travel into the exported slide deck and the tagged PDF, so they are worth
-          getting right once.
+          Select a figure or table to describe it for screen readers. Descriptions travel into the
+          exported deck and PDF.
         </p>
       </div>
     );

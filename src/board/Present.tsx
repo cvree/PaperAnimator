@@ -515,7 +515,7 @@ export function Present({
             {stop?.title ?? 'Notes'}
           </p>
           <p className="whitespace-pre-wrap text-xs leading-[1.6]">
-            {notes || 'No notes for this stop.'}
+            {notes || 'No notes for this slide.'}
           </p>
         </aside>
       )}
@@ -523,8 +523,8 @@ export function Present({
       {stops.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center p-8 text-center" style={{ zIndex: 20 }}>
           <p className="max-w-[40ch] text-base leading-[1.6]" style={{ color: 'var(--bx-ink-soft)' }}>
-            This board has no stops yet. Leave with Escape, draw a slide with <b>F</b> around the
-            part you want to talk about, and the run will build itself in the order you draw them.
+            No slides yet. Press Escape, then draw one with <b>F</b> around the part you want to
+            talk about. They run in the order you draw them.
           </p>
         </div>
       )}

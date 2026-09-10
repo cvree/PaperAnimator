@@ -83,10 +83,10 @@ export function PublishSheet({ onClose }: { onClose: () => void }) {
           <div>
             <h2 className="display-sm text-[var(--ink-primary)]">Finish it</h2>
             <p className="mt-2 max-w-[46ch] text-xs leading-[1.6] text-[var(--ink-secondary)]">
-              {board.stops.length || 0} stop{board.stops.length === 1 ? '' : 's'} ·{' '}
+              {board.stops.length || 0} slide{board.stops.length === 1 ? '' : 's'} ·{' '}
               {board.cards.length} card{board.cards.length === 1 ? '' : 's'} · a{' '}
-              {board.surface === 'black' ? 'black' : 'white'} board. Everything becomes one HTML
-              file that runs on its own — no server, no account, no us.
+              {board.surface === 'black' ? 'black' : 'white'} board. It all becomes one file that
+              opens in any browser — no server, no account.
             </p>
           </div>
           <Button size="sm" variant="ghost" onClick={onClose}>
@@ -105,8 +105,8 @@ export function PublishSheet({ onClose }: { onClose: () => void }) {
 
         {board.stops.length === 0 && (
           <p className="mt-5 rounded-[var(--radius-md)] border border-[var(--rule-hairline)] bg-[var(--surface-raised)] p-3 text-2xs leading-[1.55] text-[var(--ink-secondary)]">
-            This board has no stops, so the published page will open on the whole board at once.
-            Draw a few slides with <b>F</b> first if you want it to walk through them.
+            This board has no slides, so the page will open on the whole board at once. Draw a few
+            slides with <b>F</b> first if you want it to walk through them.
           </p>
         )}
 
@@ -129,7 +129,7 @@ export function PublishSheet({ onClose }: { onClose: () => void }) {
           <div className="mt-7 space-y-3">
             <Row
               title="Open it now"
-              detail="Opens in a new tab, in this browser. The address is temporary — it dies with this tab."
+              detail="Opens in a new tab, to check it. The address only works while this tab is open."
               action={
                 <Button
                   size="sm"
@@ -142,7 +142,7 @@ export function PublishSheet({ onClose }: { onClose: () => void }) {
             />
             <Row
               title="The finished file"
-              detail={`${formatBytes(result.bytes)} · images inside it · works offline, on a USB stick, or on any static host.`}
+              detail={`${formatBytes(result.bytes)}, images included · works offline, on a USB stick, or on any web host.`}
               action={
                 <Button
                   size="sm"
@@ -157,10 +157,10 @@ export function PublishSheet({ onClose }: { onClose: () => void }) {
               title="A link you can paste"
               detail={
                 result.hashUrl
-                  ? `${formatBytes(result.hashBytes)} of link. The whole talk rides inside the address — it opens here, and nothing is uploaded anywhere.`
-                  : `Too big for an address bar${
-                      result.assetsInlined ? ' — the figures are what make it heavy' : ''
-                    }. Download the file above and put it anywhere; that link works everywhere.`
+                  ? `${formatBytes(result.hashBytes)}. The whole talk travels inside the link — nothing is uploaded.`
+                  : `Too big for a link${
+                      result.assetsInlined ? ' — the figures make it heavy' : ''
+                    }. Download the file above and put it anywhere instead.`
               }
               action={
                 result.hashUrl ? (
@@ -179,14 +179,13 @@ export function PublishSheet({ onClose }: { onClose: () => void }) {
               <p className="text-2xs leading-[1.5] text-[var(--ink-tertiary)]">
                 {result.assetsFailed} image
                 {result.assetsFailed === 1 ? ' could not be' : 's could not be'} packed into the
-                file and will be missing from it.
+                file and will be missing.
               </p>
             )}
 
             <p className="pt-1 text-2xs leading-[1.6] text-[var(--ink-faint)]">
-              In the published page: click or press → to go on, ← to go back, <b>O</b> for the whole
-              board, <b>L</b> for a pointer, <b>B</b> to black the screen, <b>F</b> for full screen.
-              Slide numbers are in the address, so a link can point at one stop.
+              In the published page: → to go on, ← to go back, <b>O</b> for the whole board,{' '}
+              <b>L</b> for a pointer, <b>B</b> to black the screen, <b>F</b> for full screen.
             </p>
           </div>
         )}
